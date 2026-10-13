@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Three stacked boards with a branching arrow, on the 108dp adaptive icon grid. -->
+<!-- Two boards on timeline ribbons: one timeline branching from another, on the 108dp adaptive icon grid. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="#FF8B7BB5" android:pathData="M30,30h22v22h-22z" />
-    <path android:fillColor="#FFE8E0F0" android:pathData="M30,30h11v11h-11z M41,41h11v11h-11z" />
-    <path android:fillColor="#FF8B7BB5" android:pathData="M58,30h22v22h-22z" />
-    <path android:fillColor="#FFE8E0F0" android:pathData="M58,30h11v11h-11z M69,41h11v11h-11z" />
-    <path android:fillColor="#FF8B7BB5" android:pathData="M58,58h22v22h-22z" />
-    <path android:fillColor="#FFE8E0F0" android:pathData="M58,58h11v11h-11z M69,69h11v11h-11z" />
-    <path
-        android:strokeColor="#FFFFD54F"
-        android:strokeWidth="3"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M41,52 C41,64 46,69 56,69" />
+    <path android:strokeColor="#FF8C6CB0" android:strokeWidth="9" android:fillColor="#00000000"
+        android:pathData="M38,38 C50,38 40,70 54,70" />
+    <path android:fillColor="#FF8C6CB0" android:pathData="M18,33.5h48v9h-48z M66,29l12,9l-12,9z" />
+    <path android:fillColor="#FF8C6CB0" android:pathData="M52,65.5h18v9h-18z M70,61l11,9l-11,9z" />
+    <path android:fillColor="#FF34313B" android:pathData="M28.5,29.0h23v23h-23z" />
+    <path android:fillColor="#FFF7F3EA" android:pathData="M26.5,26.5h23v23h-23z" />
+    <path android:fillColor="#FFF1DDB9" android:pathData="M28,28h20v20h-20z" />
+    <path android:fillColor="#FFC59C6E" android:pathData="M28,33h5v5h-5z M28,43h5v5h-5z M33,28h5v5h-5z M33,38h5v5h-5z M38,33h5v5h-5z M38,43h5v5h-5z M43,28h5v5h-5z M43,38h5v5h-5z" />
+    <path android:fillColor="#FF34313B" android:pathData="M46.5,61.0h23v23h-23z" />
+    <path android:fillColor="#FF2C2A33" android:pathData="M44.5,58.5h23v23h-23z" />
+    <path android:fillColor="#FFF1DDB9" android:pathData="M46,60h20v20h-20z" />
+    <path android:fillColor="#FFC59C6E" android:pathData="M46,65h5v5h-5z M46,75h5v5h-5z M51,60h5v5h-5z M51,70h5v5h-5z M56,65h5v5h-5z M56,75h5v5h-5z M61,60h5v5h-5z M61,70h5v5h-5z" />
 </vector>
