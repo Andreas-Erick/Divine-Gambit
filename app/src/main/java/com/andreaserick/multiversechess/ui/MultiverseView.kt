@@ -132,8 +132,11 @@ fun MultiverseView(
     val targets = remember(session) { session.targets }
     val threats = remember(session) { session.state.threats() }
     val glyphs = remember(textMeasurer, density) {
-        val fontSize = with(density) { (Layout.SQ * 0.8f).toSp() }
-        PieceType.entries.associateWith { textMeasurer.measure(GLYPHS.getValue(it), TextStyle(fontSize = fontSize)) }
+        val glyphStyle = TextStyle(fontSize = with(density) { (Layout.SQ * 0.8f).toSp() })
+        val letterStyle = TextStyle(fontSize = with(density) { (Layout.SQ * 0.48f).toSp() }, fontWeight = FontWeight.Bold)
+        PieceType.entries.associateWith { type ->
+            GLYPHS[type]?.let { textMeasurer.measure(it, glyphStyle) } ?: textMeasurer.measure(type.letter.toString(), letterStyle)
+        }
     }
 
     Canvas(
@@ -161,6 +164,7 @@ fun MultiverseView(
     }
 }
 
+/** Chess symbols for the standard pieces. Fairy pieces have none and are drawn as lettered discs. */
 private val GLYPHS = mapOf(
     PieceType.KING to "♚︎",
     PieceType.QUEEN to "♛︎",
@@ -269,7 +273,7 @@ private fun DrawScope.drawMultiverse(
                 }
             }
             for ((square, piece) in board.pieces()) {
-                drawPiece(glyphs.getValue(piece.type), piece.side, Layout.squareCenter(Pos(timeline.index, t, square.x, square.y)))
+                drawPiece(glyphs.getValue(piece.type), piece.type, piece.side, Layout.squareCenter(Pos(timeline.index, t, square.x, square.y)))
             }
 
             val caption = textMeasurer.measure(Notation.boardLabel(timeline.index, t), labelStyle)
@@ -298,9 +302,16 @@ private fun DrawScope.drawMultiverse(
     }
 }
 
-private fun DrawScope.drawPiece(glyph: TextLayoutResult, side: Side, center: Offset) {
+private fun DrawScope.drawPiece(glyph: TextLayoutResult, type: PieceType, side: Side, center: Offset) {
     val topLeft = center - Offset(glyph.size.width / 2f, glyph.size.height / 2f)
     val (fill, outline) = if (side == Side.WHITE) Color.White to Color(0xFF1A1A1A) else Color(0xFF1A1A1A) to Color(0xFFD8D4E4)
+    if (type.isFairy) {
+        val radius = Layout.SQ * 0.36f
+        drawCircle(fill, radius, center)
+        drawCircle(outline, radius, center, style = Stroke(width = Layout.SQ * 0.05f))
+        drawText(glyph, color = outline, topLeft = topLeft)
+        return
+    }
     drawText(glyph, color = fill, topLeft = topLeft)
     drawText(glyph, color = outline, topLeft = topLeft, drawStyle = Stroke(width = Layout.SQ * 0.04f))
 }

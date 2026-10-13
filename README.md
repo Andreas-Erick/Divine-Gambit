@@ -40,8 +40,9 @@ tested quickly on the JVM:
   * Queen: the same distance along any number of dimensions. King: one step that way.
   * Knight: two along one dimension and one along another.
   * Pawn: one rank forward, or one timeline toward the opponent (up the screen for White, down for
-    Black); a double step from its starting rank; captures diagonally on the board or one timeline
-    forward plus one turn back or ahead; en passant and promotion (to a queen) on the board.
+    Black); an unmoved pawn may take a double step either way; captures diagonally on the board or
+    one timeline forward plus one turn back or ahead; en passant and promotion (to a queen) on the
+    board.
 * Moving to the **latest board of another timeline** continues that timeline. Moving to an
   **earlier board** creates a new timeline branching from it.
 * A player may have at most **one more active timeline** than the opponent. Extra timelines are
@@ -53,6 +54,22 @@ tested quickly on the JVM:
   threats). If you have no legal turn, it's checkmate when a king is threatened and stalemate
   otherwise.
 * Modes: two players on one device, or against a simple computer opponent. Undo is unlimited.
+
+## Variants
+
+Pick a variant in the menu before starting a game. Fairy pieces are drawn as discs with their
+5D chess notation letter.
+
+| Variant | Setup |
+| --- | --- |
+| Standard | The usual pieces. |
+| Princesses | Queens become princesses (**S**): any distance along one or two dimensions. |
+| Unicorns | Bishops become unicorns (**U**): equal distance along exactly three dimensions. |
+| Brawns | Pawns become brawns (**W**): pawns that can also capture by combining one step forward (rank or timeline) with one step along any other dimension. |
+| Menagerie | Unicorn, princess, dragon (**D**, equal distance along all four dimensions) and brawns. |
+
+Unicorns and dragons can never move on their own board, so they wake up once there is history to
+travel through.
 
 ## Known simplifications
 
