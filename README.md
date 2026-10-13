@@ -26,6 +26,13 @@ tested quickly on the JVM:
 | `engine/` | Game rules: multiverse state, move generation, check/checkmate search, computer player, variants, puzzles, session/undo logic. Unit-tested. |
 | `app/` | Android app: Compose UI that draws the multiverse, handles pan/zoom/tap, and runs the computer on a background thread. |
 
+## Look and feel
+
+The multiverse is drawn like a board game laid out on a table: boards on flat slabs, a purple
+ribbon carrying each timeline forward, a pale column marking the present, and raised cards for
+the boards you can play (gold ring: must play). The UI uses the Lora typeface
+(SIL Open Font License, see `app/src/main/assets/licenses/Lora-OFL.txt`).
+
 ## How to play
 
 * The screen shows every board in the multiverse. Each **row is a timeline** (L0 is the
