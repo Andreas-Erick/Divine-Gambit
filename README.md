@@ -23,7 +23,7 @@ tested quickly on the JVM:
 
 | Path | What it contains |
 | --- | --- |
-| `engine/` | Game rules: multiverse state, move generation, check/checkmate search, computer player, session/undo logic. Unit-tested. |
+| `engine/` | Game rules: multiverse state, move generation, check/checkmate search, computer player, variants, puzzles, session/undo logic. Unit-tested. |
 | `app/` | Android app: Compose UI that draws the multiverse, handles pan/zoom/tap, and runs the computer on a background thread. |
 
 ## How to play
@@ -70,6 +70,19 @@ Pick a variant in the menu before starting a game. Fairy pieces are drawn as dis
 
 Unicorns and dragons can never move on their own board, so they wake up once there is history to
 travel through.
+
+## Puzzles
+
+**Puzzles** in the menu opens six "White to checkmate in one turn" puzzles that teach the core
+ideas: attacking a king's past, which it can't step away from, with a rook, bishop and knight;
+protecting the attacker; one move that plays two timelines; and a unicorn. The positions are
+original. They're built by replaying a short history so every board in them is consistent.
+Each has a hint and a reveal-solution option, a wrong answer is taken back with an example of how
+Black escapes, and solved puzzles are remembered on the device.
+
+The puzzles are defined in `engine/.../Puzzles.kt`. `PuzzlesTest` checks that each stated solution
+is mate and that the solver (`PuzzleSolver`) finds at most two mating turns, so new puzzles can be
+added safely.
 
 ## Known simplifications
 

@@ -1,7 +1,14 @@
 package com.andreaserick.multiversechess.engine
 
-/** [computerSide] is the side the computer plays, or null for two humans on one device. */
-data class GameMode(val computerSide: Side? = null, val variant: Variant = Variant.STANDARD)
+/**
+ * [computerSide] is the side the computer plays, or null for two humans on one device.
+ * With a [puzzle], the game starts from the puzzle's position and ends once it is solved.
+ */
+data class GameMode(
+    val computerSide: Side? = null,
+    val variant: Variant = Variant.STANDARD,
+    val puzzle: Puzzle? = null,
+)
 
 /**
  * Everything the UI needs for one game: the position, the selection, the move log and an undo
@@ -9,7 +16,7 @@ data class GameMode(val computerSide: Side? = null, val variant: Variant = Varia
  */
 data class GameSession(
     val mode: GameMode,
-    val state: GameState = GameState.initial(mode.variant),
+    val state: GameState = mode.puzzle?.start() ?: GameState.initial(mode.variant),
     val selected: Pos? = null,
     val outcome: Outcome = Outcome.Ongoing,
     /** Explanation of why the last action was refused, if it was. */
@@ -17,6 +24,8 @@ data class GameSession(
     val log: List<String> = emptyList(),
     /** Moves of the most recently submitted turn. */
     val lastTurn: List<Move> = emptyList(),
+    /** Whether the puzzle's solution has been revealed in this attempt. */
+    val solutionShown: Boolean = false,
     val previous: GameSession? = null,
 ) {
     val isComputerTurn: Boolean get() = outcome == Outcome.Ongoing && mode.computerSide == state.sideToMove
@@ -55,6 +64,7 @@ data class GameSession(
         if (state.isInCheck(state.sideToMove)) {
             return copy(message = "Your king could be captured. Undo and try different moves.")
         }
+        mode.puzzle?.let { return submitPuzzle(it) }
         val next = state.submit()
         return copy(
             state = next,
@@ -62,6 +72,57 @@ data class GameSession(
             message = null,
             outcome = next.evaluateOutcome(),
             lastTurn = state.turnMoves,
+            previous = this,
+        )
+    }
+
+    /**
+     * A puzzle turn either checkmates, which solves the puzzle, or is taken back with an
+     * example of how the opponent escapes. Undo returns to the attempt.
+     */
+    private fun submitPuzzle(puzzle: Puzzle): GameSession {
+        if (puzzle.isSolvedBy(state)) {
+            return copy(
+                state = state.submit(),
+                selected = null,
+                message = null,
+                outcome = Outcome.Checkmate(state.sideToMove),
+                lastTurn = state.turnMoves,
+                previous = this,
+            )
+        }
+        val after = state.submit()
+        val escape = (TurnSearch(Puzzle.VERIFY_BUDGET, maxOptionalMoves = 2).findLegalTurn(after) as? TurnSearchResult.Found)
+            ?.result?.turnMoves?.firstOrNull()
+        val reason = if (escape != null) {
+            "Not checkmate: ${after.sideToMove.displayName} escapes with ${Notation.describe(after, escape)}."
+        } else {
+            "That isn't checkmate."
+        }
+        return copy(
+            state = puzzle.start(),
+            selected = null,
+            message = "$reason Try again.",
+            lastTurn = emptyList(),
+            previous = this,
+        )
+    }
+
+    /** Plays the puzzle's solution, ready to submit. */
+    fun showSolution(): GameSession {
+        val puzzle = mode.puzzle ?: return this
+        if (outcome != Outcome.Ongoing) return this
+        var s = puzzle.start()
+        val lines = puzzle.solution.map { (from, to) ->
+            val move = s.legalMovesFrom(from).first { it.to == to }
+            logLine(s, move).also { s = s.apply(move) }
+        }
+        return copy(
+            state = s,
+            selected = null,
+            message = "This is the solution. Tap Submit to play it.",
+            log = log + lines,
+            solutionShown = true,
             previous = this,
         )
     }
@@ -94,7 +155,7 @@ data class GameSession(
     }
 
     fun resign(): GameSession {
-        if (outcome != Outcome.Ongoing) return this
+        if (outcome != Outcome.Ongoing || mode.puzzle != null) return this
         val loser = if (mode.computerSide != null) mode.computerSide.opponent else state.sideToMove
         return copy(outcome = Outcome.Resignation(loser.opponent), selected = null, previous = this)
     }
