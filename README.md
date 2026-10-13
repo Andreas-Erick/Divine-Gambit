@@ -8,7 +8,8 @@ original game's code or assets.
 ## Opening the project
 
 1. Open the repository root in **Android Studio** (Ladybug or newer) and let Gradle sync.
-   It uses AGP 8.7, Kotlin 2.0 and Jetpack Compose, with Gradle 8.11.1 through the wrapper.
+   It uses AGP 9.2, Kotlin 2.4 and Jetpack Compose, with Gradle 9.4.1 through the wrapper
+   (which runs on the Java 25 runtime bundled with current Android Studio).
 2. Run the `app` configuration on a device or emulator (Android 7.0 / API 24 or newer).
 
 The rules live in the `engine` module, plain Kotlin with no Android dependencies, so they can be

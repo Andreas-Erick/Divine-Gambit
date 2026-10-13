@@ -71,7 +71,6 @@ class SessionAndComputerTest {
     @Test
     fun `resigning ends the game`() {
         val session = GameSession(GameMode(computerSide = Side.WHITE)).resign()
-        assertIs<Outcome.Resignation>(session.outcome)
-        assertEquals(Side.WHITE, (session.outcome as Outcome.Resignation).winner)
+        assertEquals(Side.WHITE, assertIs<Outcome.Resignation>(session.outcome).winner)
     }
 }
