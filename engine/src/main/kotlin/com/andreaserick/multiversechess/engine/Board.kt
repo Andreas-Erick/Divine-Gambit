@@ -34,12 +34,15 @@ class Board private constructor(
             val dy = target.y - from.y
             if (dx == 0 && dy == 0) continue
             val attacks = when (piece.type) {
-                PieceType.PAWN -> dy == by.rankForward && abs(dx) == 1
+                PieceType.PAWN, PieceType.BRAWN -> dy == by.rankForward && abs(dx) == 1
                 PieceType.KNIGHT -> (abs(dx) == 1 && abs(dy) == 2) || (abs(dx) == 2 && abs(dy) == 1)
                 PieceType.KING -> abs(dx) <= 1 && abs(dy) <= 1
                 PieceType.ROOK -> (dx == 0 || dy == 0) && pathClear(from, dx, dy)
                 PieceType.BISHOP -> abs(dx) == abs(dy) && pathClear(from, dx, dy)
-                PieceType.QUEEN -> (dx == 0 || dy == 0 || abs(dx) == abs(dy)) && pathClear(from, dx, dy)
+                PieceType.QUEEN, PieceType.PRINCESS ->
+                    (dx == 0 || dy == 0 || abs(dx) == abs(dy)) && pathClear(from, dx, dy)
+                // They always change time or timeline, so they never attack their own board.
+                PieceType.UNICORN, PieceType.DRAGON -> false
             }
             if (attacks) return true
         }
@@ -73,20 +76,12 @@ class Board private constructor(
     }
 
     companion object {
-        fun standard(): Board = parse(
-            "rnbqkbnr",
-            "pppppppp",
-            "........",
-            "........",
-            "........",
-            "........",
-            "PPPPPPPP",
-            "RNBQKBNR",
-        )
+        fun standard(): Board = Variant.STANDARD.board()
 
         /**
          * Builds a board from eight rows listed from rank 8 down to rank 1. Upper case is White,
-         * lower case is Black and `.` is empty. Pawns off their starting rank are marked as moved.
+         * lower case is Black and `.` is empty (see [PieceType.letter]). Pawns and brawns off their
+         * starting rank are marked as moved.
          */
         fun parse(vararg rows: String, enPassant: Square? = null): Board {
             require(rows.size == BOARD_SIZE && rows.all { it.length == BOARD_SIZE }) { "Expected 8 rows of 8" }
@@ -98,7 +93,7 @@ class Board private constructor(
                         val side = if (c.isUpperCase()) Side.WHITE else Side.BLACK
                         val type = PieceType.entries.first { it.letter == c.uppercaseChar() }
                         val pawnHome = if (side == Side.WHITE) 1 else BOARD_SIZE - 2
-                        cells[y * BOARD_SIZE + x] = Piece(type, side, moved = type == PieceType.PAWN && y != pawnHome)
+                        cells[y * BOARD_SIZE + x] = Piece(type, side, moved = type.isPawnLike && y != pawnHome)
                     }
                 }
             }

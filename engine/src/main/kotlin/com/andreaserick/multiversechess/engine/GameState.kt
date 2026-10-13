@@ -182,6 +182,7 @@ class GameState(
         }
 
     companion object {
-        fun initial(): GameState = GameState(mapOf(0 to Timeline(0, 0, listOf(Board.standard()))), Side.WHITE)
+        fun initial(variant: Variant = Variant.STANDARD): GameState =
+            GameState(mapOf(0 to Timeline(0, 0, listOf(variant.board()))), Side.WHITE)
     }
 }

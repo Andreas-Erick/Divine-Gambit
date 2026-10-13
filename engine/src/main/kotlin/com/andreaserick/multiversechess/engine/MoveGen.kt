@@ -21,6 +21,15 @@ internal object Directions {
     /** Equal distance along any number of axes (also the king's single steps). */
     val queen: List<Vec> = units
 
+    /** Equal distance along one or two axes. */
+    val princess: List<Vec> = rook + bishop
+
+    /** Equal distance along exactly three axes. */
+    val unicorn: List<Vec> = units.filter { it.axes == 3 }
+
+    /** Equal distance along all four axes. */
+    val dragon: List<Vec> = units.filter { it.axes == 4 }
+
     /** Two along one axis and one along another. */
     val knight: List<Vec> = buildList {
         for (a in 0 until 4) for (b in 0 until 4) {
@@ -53,7 +62,10 @@ internal fun GameState.generateMoves(from: Pos, capturesOnly: Boolean): List<Mov
         PieceType.ROOK -> addRays(from, piece.side, Directions.rook, slide = true, capturesOnly, out)
         PieceType.BISHOP -> addRays(from, piece.side, Directions.bishop, slide = true, capturesOnly, out)
         PieceType.KNIGHT -> addRays(from, piece.side, Directions.knight, slide = false, capturesOnly, out)
-        PieceType.PAWN -> addPawnMoves(from, board, piece, capturesOnly, out)
+        PieceType.PRINCESS -> addRays(from, piece.side, Directions.princess, slide = true, capturesOnly, out)
+        PieceType.UNICORN -> addRays(from, piece.side, Directions.unicorn, slide = true, capturesOnly, out)
+        PieceType.DRAGON -> addRays(from, piece.side, Directions.dragon, slide = true, capturesOnly, out)
+        PieceType.PAWN, PieceType.BRAWN -> addPawnMoves(from, board, piece, capturesOnly, out)
     }
     return out
 }
@@ -92,44 +104,58 @@ private fun GameState.addPawnMoves(from: Pos, board: Board, piece: Piece, captur
     val dy = side.rankForward
     val dl = side.timelineForward
     fun step(to: Pos) = Move(from, to, promotion = if (to.y == side.promotionRank) PieceType.QUEEN else null)
+    fun isEmpty(p: Pos): Boolean = boardAt(p.l, p.t)?.let { Square.isOnBoard(p.x, p.y) && it[p.x, p.y] == null } == true
 
     if (!capturesOnly) {
+        // Forward along the rank axis, or along the timeline axis onto the same square of a
+        // neighbouring timeline. An unmoved pawn may go two steps either way.
         val one = from.copy(y = from.y + dy)
-        if (Square.isOnBoard(one.x, one.y) && board[one.x, one.y] == null) {
+        if (isEmpty(one)) {
             out += step(one)
             val two = from.copy(y = from.y + 2 * dy)
-            if (!piece.moved && Square.isOnBoard(two.x, two.y) && board[two.x, two.y] == null) {
-                out += Move(from, two, doubleStep = true)
-            }
+            if (!piece.moved && isEmpty(two)) out += Move(from, two, doubleStep = true)
         }
-        // Forward along the timeline axis onto the same square of a neighbouring timeline.
         val across = from.copy(l = from.l + dl)
-        val acrossBoard = boardAt(across.l, across.t)
-        if (acrossBoard != null && acrossBoard[across.x, across.y] == null) out += step(across)
+        if (isEmpty(across)) {
+            out += step(across)
+            val twoAcross = from.copy(l = from.l + 2 * dl)
+            if (!piece.moved && isEmpty(twoAcross)) out += step(twoAcross)
+        }
+    }
+
+    fun capture(to: Pos) {
+        if (!Square.isOnBoard(to.x, to.y)) return
+        val occupant = boardAt(to.l, to.t)?.get(to.x, to.y) ?: return
+        if (occupant.side != side) out += step(to)
     }
 
     // Spatial diagonal captures, including en passant.
     for (dx in intArrayOf(-1, 1)) {
         val to = from.copy(x = from.x + dx, y = from.y + dy)
         if (!Square.isOnBoard(to.x, to.y)) continue
-        val occupant = board[to.x, to.y]
-        if (occupant != null) {
-            if (occupant.side != side) out += step(to)
+        if (board[to.x, to.y] != null) {
+            capture(to)
         } else if (board.enPassant == to.square) {
             val victim = Square(to.x, from.y)
             val victimPiece = board[victim]
-            if (victimPiece != null && victimPiece.type == PieceType.PAWN && victimPiece.side != side) {
+            if (victimPiece != null && victimPiece.type.isPawnLike && victimPiece.side != side) {
                 out += Move(from, to, enPassantCapture = victim)
             }
         }
     }
 
     // Diagonal captures in the time/timeline plane: forward one timeline, one turn back or ahead.
-    for (dt in intArrayOf(-1, 1)) {
-        val to = from.copy(l = from.l + dl, t = from.t + 2 * dt)
-        val target = boardAt(to.l, to.t) ?: continue
-        val occupant = target[to.x, to.y]
-        if (occupant != null && occupant.side != side) out += step(to)
+    for (dt in intArrayOf(-1, 1)) capture(from.copy(l = from.l + dl, t = from.t + 2 * dt))
+
+    if (piece.type == PieceType.BRAWN) {
+        // Also one step forward along the rank or timeline axis combined with one step along any
+        // other axis in either direction, except the pawn's two diagonals already covered above.
+        for (d in intArrayOf(-1, 1)) {
+            capture(from.copy(y = from.y + dy, t = from.t + 2 * d))
+            capture(from.copy(y = from.y + dy, l = from.l + d))
+            capture(from.copy(l = from.l + dl, x = from.x + d))
+            if (d != dy) capture(from.copy(l = from.l + dl, y = from.y + d))
+        }
     }
 }
 

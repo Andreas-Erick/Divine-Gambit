@@ -2,6 +2,7 @@ package com.andreaserick.multiversechess.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,29 +11,36 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.GameMode
 import com.andreaserick.multiversechess.engine.Side
+import com.andreaserick.multiversechess.engine.Variant
 
 @Composable
 fun MenuScreen(onStart: (GameMode) -> Unit, modifier: Modifier = Modifier) {
     var showRules by remember { mutableStateOf(false) }
+    var showVariants by remember { mutableStateOf(false) }
+    var variant by rememberSaveable { mutableStateOf(Variant.STANDARD) }
 
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -55,13 +63,16 @@ fun MenuScreen(onStart: (GameMode) -> Unit, modifier: Modifier = Modifier) {
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(24.dp))
-            Button(onClick = { onStart(GameMode()) }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { showVariants = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Variant: ${variant.displayName}")
+            }
+            Button(onClick = { onStart(GameMode(variant = variant)) }, modifier = Modifier.fillMaxWidth()) {
                 Text("Two players (pass and play)")
             }
-            Button(onClick = { onStart(GameMode(computerSide = Side.BLACK)) }, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { onStart(GameMode(computerSide = Side.BLACK, variant = variant)) }, modifier = Modifier.fillMaxWidth()) {
                 Text("Play White vs computer")
             }
-            Button(onClick = { onStart(GameMode(computerSide = Side.WHITE)) }, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { onStart(GameMode(computerSide = Side.WHITE, variant = variant)) }, modifier = Modifier.fillMaxWidth()) {
                 Text("Play Black vs computer")
             }
             OutlinedButton(onClick = { showRules = true }, modifier = Modifier.fillMaxWidth()) {
@@ -71,6 +82,44 @@ fun MenuScreen(onStart: (GameMode) -> Unit, modifier: Modifier = Modifier) {
     }
 
     if (showRules) RulesDialog(onDismiss = { showRules = false })
+    if (showVariants) {
+        VariantDialog(
+            selected = variant,
+            onSelect = {
+                variant = it
+                showVariants = false
+            },
+            onDismiss = { showVariants = false },
+        )
+    }
+}
+
+@Composable
+private fun VariantDialog(selected: Variant, onSelect: (Variant) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        title = { Text("Variant") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                for (option in Variant.entries) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .selectable(option == selected, role = Role.RadioButton, onClick = { onSelect(option) })
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = option == selected, onClick = null)
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(option.displayName, style = MaterialTheme.typography.titleSmall)
+                            Text(option.description, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -96,8 +145,8 @@ private val RULES = listOf(
         "distance along any number. King: one step in any combination. Knight: two along one " +
         "dimension and one along another.",
     "Pawns advance one rank, or one timeline toward the opponent (up for White, down for " +
-        "Black). They capture diagonally on the board, or one timeline forward and one turn " +
-        "back or ahead.",
+        "Black); an unmoved pawn may go two either way. They capture diagonally on the board, " +
+        "or one timeline forward and one turn back or ahead.",
     "Moving to an earlier board creates a new timeline. Moving to the latest board of " +
         "another timeline just continues it.",
     "The present is the earliest active timeline. You must move on every board in the " +
@@ -106,4 +155,8 @@ private val RULES = listOf(
         "are dimmed and don't hold back the present.",
     "You can't submit a turn that lets the opponent capture any of your kings. If you have " +
         "no legal turn you are checkmated (or stalemated if no king is threatened).",
+    "Some variants add fairy pieces, drawn as lettered discs. S, princess: a rook or bishop " +
+        "move. U, unicorn: equal distance along exactly three dimensions. D, dragon: equal " +
+        "distance along all four. W, brawn: a pawn that can also capture by combining one step " +
+        "forward (rank or timeline) with one step along any other dimension.",
 )

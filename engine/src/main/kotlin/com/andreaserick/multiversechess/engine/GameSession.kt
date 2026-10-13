@@ -1,7 +1,7 @@
 package com.andreaserick.multiversechess.engine
 
 /** [computerSide] is the side the computer plays, or null for two humans on one device. */
-data class GameMode(val computerSide: Side? = null)
+data class GameMode(val computerSide: Side? = null, val variant: Variant = Variant.STANDARD)
 
 /**
  * Everything the UI needs for one game: the position, the selection, the move log and an undo
@@ -9,7 +9,7 @@ data class GameMode(val computerSide: Side? = null)
  */
 data class GameSession(
     val mode: GameMode,
-    val state: GameState = GameState.initial(),
+    val state: GameState = GameState.initial(mode.variant),
     val selected: Pos? = null,
     val outcome: Outcome = Outcome.Ongoing,
     /** Explanation of why the last action was refused, if it was. */

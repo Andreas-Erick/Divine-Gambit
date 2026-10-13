@@ -32,13 +32,34 @@ enum class Side {
     }
 }
 
-enum class PieceType(val letter: Char, val value: Int) {
-    KING('K', 0),
-    QUEEN('Q', 9),
-    ROOK('R', 5),
-    BISHOP('B', 3),
-    KNIGHT('N', 3),
-    PAWN('P', 1),
+/**
+ * [letter] is the piece's letter in notation and in [Board.parse] (upper case White, lower case Black).
+ * The last four are fairy pieces used by some variants; their letters follow 5D chess notation.
+ */
+enum class PieceType(val letter: Char, val value: Int, val displayName: String) {
+    KING('K', 0, "King"),
+    QUEEN('Q', 9, "Queen"),
+    ROOK('R', 5, "Rook"),
+    BISHOP('B', 3, "Bishop"),
+    KNIGHT('N', 3, "Knight"),
+    PAWN('P', 1, "Pawn"),
+
+    /** Rook plus bishop: any distance along one or two dimensions. */
+    PRINCESS('S', 7, "Princess"),
+
+    /** Equal distance along exactly three dimensions, so it always leaves its board. */
+    UNICORN('U', 3, "Unicorn"),
+
+    /** Equal distance along all four dimensions. */
+    DRAGON('D', 2, "Dragon"),
+
+    /** A pawn that can also capture diagonally between a forward axis and any other dimension. */
+    BRAWN('W', 2, "Brawn");
+
+    /** Moves forward, double-steps, captures en passant and promotes like a pawn. */
+    val isPawnLike: Boolean get() = this == PAWN || this == BRAWN
+
+    val isFairy: Boolean get() = ordinal > PAWN.ordinal
 }
 
 data class Piece(val type: PieceType, val side: Side, val moved: Boolean = false)
