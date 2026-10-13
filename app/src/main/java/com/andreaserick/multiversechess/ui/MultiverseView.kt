@@ -135,7 +135,12 @@ fun MultiverseView(
         val glyphStyle = TextStyle(fontSize = with(density) { (Layout.SQ * 0.8f).toSp() })
         val letterStyle = TextStyle(fontSize = with(density) { (Layout.SQ * 0.48f).toSp() }, fontWeight = FontWeight.Bold)
         PieceType.entries.associateWith { type ->
-            GLYPHS[type]?.let { textMeasurer.measure(it, glyphStyle) } ?: textMeasurer.measure(type.letter.toString(), letterStyle)
+            val symbols = GLYPHS[type]
+            if (symbols == null) {
+                PieceGlyph(textMeasurer.measure(type.letter.toString(), letterStyle), outline = null)
+            } else {
+                PieceGlyph(textMeasurer.measure(symbols.first, glyphStyle), textMeasurer.measure(symbols.second, glyphStyle))
+            }
         }
     }
 
@@ -164,21 +169,28 @@ fun MultiverseView(
     }
 }
 
-/** Chess symbols for the standard pieces. Fairy pieces have none and are drawn as lettered discs. */
+/**
+ * Solid and hollow chess symbols for the standard pieces: the solid one is filled with the side's
+ * colour and the hollow one drawn on top as the outline. Fairy pieces have none and are drawn as
+ * lettered discs.
+ */
 private val GLYPHS = mapOf(
-    PieceType.KING to "♚︎",
-    PieceType.QUEEN to "♛︎",
-    PieceType.ROOK to "♜︎",
-    PieceType.BISHOP to "♝︎",
-    PieceType.KNIGHT to "♞︎",
-    PieceType.PAWN to "♟︎",
+    PieceType.KING to ("♚︎" to "♔︎"),
+    PieceType.QUEEN to ("♛︎" to "♕︎"),
+    PieceType.ROOK to ("♜︎" to "♖︎"),
+    PieceType.BISHOP to ("♝︎" to "♗︎"),
+    PieceType.KNIGHT to ("♞︎" to "♘︎"),
+    PieceType.PAWN to ("♟︎" to "♙︎"),
 )
+
+/** [body] is the solid symbol (or a fairy piece's letter); [outline] the hollow symbol, if any. */
+internal class PieceGlyph(val body: TextLayoutResult, val outline: TextLayoutResult?)
 
 private fun DrawScope.drawMultiverse(
     session: GameSession,
     targets: List<Move>,
     threats: List<Move>,
-    glyphs: Map<PieceType, TextLayoutResult>,
+    glyphs: Map<PieceType, PieceGlyph>,
     textMeasurer: TextMeasurer,
     visible: Rect,
 ) {
@@ -273,7 +285,7 @@ private fun DrawScope.drawMultiverse(
                 }
             }
             for ((square, piece) in board.pieces()) {
-                drawPiece(glyphs.getValue(piece.type), piece.type, piece.side, Layout.squareCenter(Pos(timeline.index, t, square.x, square.y)))
+                drawPiece(glyphs.getValue(piece.type), piece.side, Layout.squareCenter(Pos(timeline.index, t, square.x, square.y)))
             }
 
             val caption = textMeasurer.measure(Notation.boardLabel(timeline.index, t), labelStyle)
@@ -302,18 +314,27 @@ private fun DrawScope.drawMultiverse(
     }
 }
 
-private fun DrawScope.drawPiece(glyph: TextLayoutResult, type: PieceType, side: Side, center: Offset) {
-    val topLeft = center - Offset(glyph.size.width / 2f, glyph.size.height / 2f)
+private fun DrawScope.drawPiece(glyph: PieceGlyph, side: Side, center: Offset) {
+    fun TextLayoutResult.topLeft() = center - Offset(size.width / 2f, size.height / 2f)
     val (fill, outline) = if (side == Side.WHITE) Color.White to Color(0xFF1A1A1A) else Color(0xFF1A1A1A) to Color(0xFFD8D4E4)
-    if (type.isFairy) {
+    if (glyph.outline == null) {
         val radius = Layout.SQ * 0.36f
         drawCircle(fill, radius, center)
         drawCircle(outline, radius, center, style = Stroke(width = Layout.SQ * 0.05f))
-        drawText(glyph, color = outline, topLeft = topLeft)
+        drawText(glyph.body, color = outline, topLeft = glyph.body.topLeft())
         return
     }
-    drawText(glyph, color = fill, topLeft = topLeft)
-    drawText(glyph, color = outline, topLeft = topLeft, drawStyle = Stroke(width = Layout.SQ * 0.04f))
+    if (side == Side.WHITE) {
+        drawText(glyph.body, color = fill, topLeft = glyph.body.topLeft())
+        drawText(glyph.outline, color = outline, topLeft = glyph.outline.topLeft())
+    } else {
+        // The hollow symbols' inner lines are too heavy on a dark piece, so outline it with a halo.
+        val d = Layout.SQ * 0.035f
+        for (dx in -1..1) for (dy in -1..1) {
+            if (dx != 0 || dy != 0) drawText(glyph.body, color = outline, topLeft = glyph.body.topLeft() + Offset(dx * d, dy * d))
+        }
+        drawText(glyph.body, color = fill, topLeft = glyph.body.topLeft())
+    }
 }
 
 private fun DrawScope.drawArrow(from: Offset, to: Offset, color: Color) {

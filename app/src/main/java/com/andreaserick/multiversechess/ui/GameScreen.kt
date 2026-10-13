@@ -30,15 +30,19 @@ import com.andreaserick.multiversechess.engine.GameSession
 import com.andreaserick.multiversechess.engine.Notation
 import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.engine.Pos
+import com.andreaserick.multiversechess.engine.Puzzle
 
 @Composable
 fun GameScreen(
     session: GameSession,
     thinking: Boolean,
+    nextPuzzle: Puzzle?,
     onTap: (Pos) -> Unit,
     onSubmit: () -> Unit,
     onUndo: () -> Unit,
     onResign: () -> Unit,
+    onShowSolution: () -> Unit,
+    onStartPuzzle: (Puzzle) -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -46,6 +50,9 @@ fun GameScreen(
     var showLog by remember { mutableStateOf(false) }
     var showRules by remember { mutableStateOf(false) }
     var confirmResign by remember { mutableStateOf(false) }
+    var showHint by remember { mutableStateOf(false) }
+    var confirmSolution by remember { mutableStateOf(false) }
+    val puzzle = session.mode.puzzle
     var dismissedOutcome by remember { mutableStateOf<Outcome?>(null) }
     val state = session.state
 
@@ -57,11 +64,19 @@ fun GameScreen(
 
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onExit) { Text("Menu") }
+            TextButton(onClick = onExit) { Text(if (puzzle != null) "Puzzles" else "Menu") }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { showRules = true }) { Text("Rules") }
-            TextButton(onClick = { showLog = true }) { Text("Moves") }
-            TextButton(onClick = { confirmResign = true }, enabled = session.outcome == Outcome.Ongoing) { Text("Resign") }
+            if (puzzle != null) {
+                TextButton(onClick = { showHint = true }) { Text("Hint") }
+                TextButton(
+                    onClick = { confirmSolution = true },
+                    enabled = session.outcome == Outcome.Ongoing && !thinking,
+                ) { Text("Solution") }
+            } else {
+                TextButton(onClick = { showLog = true }) { Text("Moves") }
+                TextButton(onClick = { confirmResign = true }, enabled = session.outcome == Outcome.Ongoing) { Text("Resign") }
+            }
         }
 
         MultiverseView(session, camera, onTap, Modifier.weight(1f).fillMaxWidth())
@@ -80,7 +95,7 @@ fun GameScreen(
                     }) { Text("Present") }
                     Button(
                         onClick = onSubmit,
-                        enabled = state.canSubmit && !session.isComputerTurn && session.outcome == Outcome.Ongoing,
+                        enabled = state.canSubmit && !thinking && !session.isComputerTurn && session.outcome == Outcome.Ongoing,
                         modifier = Modifier.weight(1f),
                     ) { Text("Submit", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
@@ -89,6 +104,30 @@ fun GameScreen(
     }
 
     if (showRules) RulesDialog(onDismiss = { showRules = false })
+
+    if (showHint && puzzle != null) {
+        AlertDialog(
+            onDismissRequest = { showHint = false },
+            confirmButton = { TextButton(onClick = { showHint = false }) { Text("OK") } },
+            title = { Text("Hint") },
+            text = { Text(puzzle.hint) },
+        )
+    }
+
+    if (confirmSolution) {
+        AlertDialog(
+            onDismissRequest = { confirmSolution = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmSolution = false
+                    onShowSolution()
+                }) { Text("Show") }
+            },
+            dismissButton = { TextButton(onClick = { confirmSolution = false }) { Text("Keep trying") } },
+            title = { Text("Show the solution?") },
+            text = { Text("The puzzle won't count as solved.") },
+        )
+    }
 
     if (showLog) {
         AlertDialog(
@@ -120,7 +159,23 @@ fun GameScreen(
     }
 
     val outcome = session.outcome
-    if (outcome != Outcome.Ongoing && outcome != dismissedOutcome) {
+    if (puzzle != null && outcome != Outcome.Ongoing && outcome != dismissedOutcome) {
+        AlertDialog(
+            onDismissRequest = { dismissedOutcome = outcome },
+            confirmButton = {
+                if (nextPuzzle != null) {
+                    TextButton(onClick = { onStartPuzzle(nextPuzzle) }) { Text("Next puzzle") }
+                } else {
+                    TextButton(onClick = onExit) { Text("All puzzles") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { dismissedOutcome = outcome }) { Text("View board") } },
+            title = { Text("Puzzle solved") },
+            text = {
+                Text(if (session.solutionShown) "That's the checkmate." else "Checkmate! ${puzzle.title} solved.")
+            },
+        )
+    } else if (outcome != Outcome.Ongoing && outcome != dismissedOutcome) {
         AlertDialog(
             onDismissRequest = { dismissedOutcome = outcome },
             confirmButton = { TextButton(onClick = onExit) { Text("Back to menu") } },
@@ -142,8 +197,13 @@ private fun statusText(session: GameSession, thinking: Boolean): String {
     if (session.outcome != Outcome.Ongoing) return outcomeText(session.outcome)
     val state = session.state
     val side = state.sideToMove.displayName
-    if (thinking) return "Computer ($side) is thinking…"
-    val parts = mutableListOf("$side to move", "present T${Notation.turnNumber(state.present)}")
+    val puzzle = session.mode.puzzle
+    if (thinking) return if (puzzle != null) "Checking…" else "Computer ($side) is thinking…"
+    val parts = if (puzzle != null) {
+        mutableListOf("$side to checkmate in one turn")
+    } else {
+        mutableListOf("$side to move", "present T${Notation.turnNumber(state.present)}")
+    }
     val left = state.mandatoryTimelines.size
     when {
         state.canSubmit -> parts += "ready to submit"

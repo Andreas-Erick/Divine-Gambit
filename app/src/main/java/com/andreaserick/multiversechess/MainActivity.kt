@@ -11,9 +11,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.andreaserick.multiversechess.engine.Puzzles
 import com.andreaserick.multiversechess.ui.GameScreen
 import com.andreaserick.multiversechess.ui.MenuScreen
 import com.andreaserick.multiversechess.ui.MultiverseChessTheme
+import com.andreaserick.multiversechess.ui.PuzzleListScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,19 +33,33 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MultiverseChessApp(modifier: Modifier = Modifier, viewModel: GameViewModel = viewModel()) {
     val session = viewModel.session
-    if (session == null) {
-        MenuScreen(onStart = viewModel::startGame, modifier = modifier)
-    } else {
-        BackHandler { viewModel.exitToMenu() }
-        GameScreen(
-            session = session,
-            thinking = viewModel.thinking,
-            onTap = viewModel::tap,
-            onSubmit = viewModel::submit,
-            onUndo = viewModel::undo,
-            onResign = viewModel::resign,
-            onExit = viewModel::exitToMenu,
-            modifier = modifier,
-        )
+    when {
+        session != null -> {
+            BackHandler { viewModel.back() }
+            GameScreen(
+                session = session,
+                thinking = viewModel.thinking,
+                nextPuzzle = viewModel.nextPuzzle,
+                onTap = viewModel::tap,
+                onSubmit = viewModel::submit,
+                onUndo = viewModel::undo,
+                onResign = viewModel::resign,
+                onShowSolution = viewModel::showSolution,
+                onStartPuzzle = viewModel::startPuzzle,
+                onExit = viewModel::back,
+                modifier = modifier,
+            )
+        }
+        viewModel.showingPuzzles -> {
+            BackHandler { viewModel.back() }
+            PuzzleListScreen(
+                puzzles = Puzzles.all,
+                solved = viewModel.solvedPuzzles,
+                onOpen = viewModel::startPuzzle,
+                onBack = viewModel::back,
+                modifier = modifier,
+            )
+        }
+        else -> MenuScreen(onStart = viewModel::startGame, onPuzzles = viewModel::openPuzzles, modifier = modifier)
     }
 }

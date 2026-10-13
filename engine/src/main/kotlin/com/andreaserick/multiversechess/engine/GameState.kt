@@ -174,8 +174,8 @@ class GameState(
     }
 
     /** Decides whether the side to move is checkmated or stalemated. */
-    fun evaluateOutcome(nodeBudget: Int = 4_000): Outcome =
-        when (TurnSearch(nodeBudget).findLegalTurn(this)) {
+    fun evaluateOutcome(nodeBudget: Int = 4_000, maxOptionalMoves: Int = 1): Outcome =
+        when (TurnSearch(nodeBudget, maxOptionalMoves).findLegalTurn(this)) {
             is TurnSearchResult.Found, TurnSearchResult.Inconclusive -> Outcome.Ongoing
             TurnSearchResult.NoLegalTurn ->
                 if (threats().isNotEmpty()) Outcome.Checkmate(sideToMove.opponent) else Outcome.Stalemate

@@ -37,7 +37,7 @@ import com.andreaserick.multiversechess.engine.Side
 import com.andreaserick.multiversechess.engine.Variant
 
 @Composable
-fun MenuScreen(onStart: (GameMode) -> Unit, modifier: Modifier = Modifier) {
+fun MenuScreen(onStart: (GameMode) -> Unit, onPuzzles: () -> Unit, modifier: Modifier = Modifier) {
     var showRules by remember { mutableStateOf(false) }
     var showVariants by remember { mutableStateOf(false) }
     var variant by rememberSaveable { mutableStateOf(Variant.STANDARD) }
@@ -74,6 +74,9 @@ fun MenuScreen(onStart: (GameMode) -> Unit, modifier: Modifier = Modifier) {
             }
             Button(onClick = { onStart(GameMode(computerSide = Side.WHITE, variant = variant)) }, modifier = Modifier.fillMaxWidth()) {
                 Text("Play Black vs computer")
+            }
+            OutlinedButton(onClick = onPuzzles, modifier = Modifier.fillMaxWidth()) {
+                Text("Puzzles")
             }
             OutlinedButton(onClick = { showRules = true }, modifier = Modifier.fillMaxWidth()) {
                 Text("How to play")
