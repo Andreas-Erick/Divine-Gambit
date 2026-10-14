@@ -250,6 +250,10 @@ private val RULES = listOf(
     "The multiverse" to
         "Each row is a timeline (purple ribbon) and each column a half-move, advancing to the right. " +
         "Drag to pan and pinch to zoom.",
+    "Finding your way" to
+        "Tap a timeline's ribbon, or its label on the left edge, to see the whole timeline. Tap a " +
+        "board that's too small to play on to zoom in on it. The corners button shows the whole " +
+        "multiverse, and Present brings you back to the boards you have to play.",
     "Four dimensions" to
         "Pieces move as in chess, but through file, rank, time (one step = one full turn back) and " +
         "timeline (one row up or down).",

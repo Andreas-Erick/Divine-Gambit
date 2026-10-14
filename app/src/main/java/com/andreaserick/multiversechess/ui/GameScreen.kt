@@ -36,13 +36,18 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,23 +85,49 @@ fun GameScreen(
     val state = session.state
     val ongoing = session.outcome == Outcome.Ongoing
 
+    // A light tick for each move, and a firmer one when the turn passes.
+    val haptics = LocalHapticFeedback.current
+    var movesSeen by remember { mutableIntStateOf(state.turnMoves.size) }
+    var sideSeen by remember { mutableStateOf(state.sideToMove) }
+    LaunchedEffect(state.turnMoves.size, state.sideToMove) {
+        when {
+            state.sideToMove != sideSeen -> haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            state.turnMoves.size > movesSeen -> haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+        }
+        movesSeen = state.turnMoves.size
+        sideSeen = state.sideToMove
+    }
+
     // Glide to the present at the start of each turn (and once the view has a size), but not after
     // every move, so the player keeps sight of what they just did.
     val turnStart = state.takeIf { it.turnMoves.isEmpty() }?.timelines
+    val comfortableSquare = with(LocalDensity.current) { COMFORTABLE_SQUARE.toPx() }
+    suspend fun focusPresent(resetZoom: Boolean = false) {
+        val (l, t) = state.focusBoard()
+        camera.focus(state.focusArea(), resetZoom, comfortableSquare, fallback = Layout.boardRect(l, t))
+    }
     LaunchedEffect(state.sideToMove, turnStart, camera.viewSize) {
-        if (turnStart != null) camera.focus(state.focusArea())
+        if (turnStart != null) focusPresent()
     }
 
     Box(modifier.fillMaxSize()) {
         MultiverseView(session, camera, onTap, Modifier.fillMaxSize())
 
-        // Top: back, title and tools, floating over the multiverse.
+        // Top: back, title and tools, floating over the multiverse on a band of parchment that
+        // fades out, so boards passing underneath don't run through the title.
         Row(
             Modifier
                 .fillMaxWidth()
-                .onSizeChanged { camera.coveredTop = it.height.toFloat() + 40f }
+                .onSizeChanged { camera.coveredTop = it.height.toFloat() }
+                .background(
+                    Brush.verticalGradient(
+                        0f to Palette.parchment.copy(alpha = 0.97f),
+                        0.7f to Palette.parchment.copy(alpha = 0.88f),
+                        1f to Palette.parchment.copy(alpha = 0f),
+                    ),
+                )
                 .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 28.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onExit)
@@ -176,7 +207,7 @@ fun GameScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         SecondaryPill(onClick = onUndo, enabled = session.previous != null) { Text("Undo") }
                         SecondaryPill(onClick = {
-                            scope.launch { camera.focus(state.focusArea(), resetZoom = true) }
+                            scope.launch { focusPresent(resetZoom = true) }
                         }) { Text("Present") }
                         PrimaryPill(
                             onClick = onSubmit,

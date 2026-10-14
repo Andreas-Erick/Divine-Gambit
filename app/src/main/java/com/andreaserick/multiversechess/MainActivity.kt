@@ -6,6 +6,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -39,8 +40,25 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MultiverseChessApp(modifier: Modifier = Modifier, viewModel: GameViewModel = viewModel()) {
     val session = viewModel.session
-    when {
-        session != null -> {
+    val screen = when {
+        session != null -> Screen.GAME
+        viewModel.showingPuzzles -> Screen.PUZZLES
+        else -> Screen.MENU
+    }
+    Crossfade(screen, label = "screen") { shown ->
+        Screen(shown, viewModel, modifier)
+    }
+}
+
+private enum class Screen { MENU, PUZZLES, GAME }
+
+@Composable
+private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier) {
+    val session = viewModel.session
+    when (screen) {
+        Screen.GAME -> {
+            // While fading out after the game has closed, there's nothing left to draw.
+            if (session == null) return
             BackHandler { viewModel.back() }
             GameScreen(
                 session = session,
@@ -56,7 +74,7 @@ fun MultiverseChessApp(modifier: Modifier = Modifier, viewModel: GameViewModel =
                 modifier = modifier,
             )
         }
-        viewModel.showingPuzzles -> {
+        Screen.PUZZLES -> {
             BackHandler { viewModel.back() }
             PuzzleListScreen(
                 puzzles = Puzzles.all,
@@ -66,7 +84,7 @@ fun MultiverseChessApp(modifier: Modifier = Modifier, viewModel: GameViewModel =
                 modifier = modifier,
             )
         }
-        else -> MenuScreen(
+        Screen.MENU -> MenuScreen(
             onStart = viewModel::startGame,
             onPuzzles = viewModel::openPuzzles,
             puzzleProgress = "${Puzzles.all.count { it.id in viewModel.solvedPuzzles }} / ${Puzzles.all.size}",
