@@ -193,12 +193,18 @@ class ServerModel(baseUrl: String, private val model: String, private val apiKey
 
 /**
  * A model that runs on the phone, with Google's LiteRT-LM runtime, from a .litertlm [file]. The
- * model is loaded once (which takes a while) and kept while the app runs.
+ * model is loaded once (which takes a while) and kept while the app runs. [freeMemory] says how
+ * many bytes the phone can spare right now, before Android starts closing apps.
  */
-class OnDeviceModel(private val file: File, override val name: String, private val cacheDir: File) : LanguageModel {
+class OnDeviceModel(
+    private val file: File,
+    override val name: String,
+    private val cacheDir: File,
+    private val freeMemory: () -> Long,
+) : LanguageModel {
     override suspend fun chat(system: String, messages: List<ChatMessage>): String = withContext(Dispatchers.Default) {
         lock.withLock {
-            val engine = engineFor(file, cacheDir)
+            val engine = engineFor(file, cacheDir, freeMemory)
             val history = messages.dropLast(1).map { if (it.fromModel) Message.model(it.text) else Message.user(it.text) }
             try {
                 // Thinking out loud first makes a phone's model far too slow for a game; answers are short.
@@ -229,10 +235,24 @@ class OnDeviceModel(private val file: File, override val name: String, private v
         private val lock = Mutex()
         private var loaded: Pair<File, Engine>? = null
 
-        private fun engineFor(file: File, cacheDir: File): Engine {
+        /**
+         * Memory a model needs to load and run, besides its file: loading one with too little free
+         * makes Android close the app outright, so it's checked first.
+         */
+        private fun memoryNeeded(file: File): Long = file.length() + file.length() / 2 + 300_000_000L
+
+        private fun engineFor(file: File, cacheDir: File, freeMemory: () -> Long): Engine {
             loaded?.let { (current, engine) -> if (current == file) return engine else engine.close() }
             loaded = null
             if (!file.exists()) throw AiException("The model file is missing; download it again in AI settings.")
+            val needed = memoryNeeded(file)
+            val free = freeMemory()
+            if (free < needed) {
+                throw AiException(
+                    "There isn't enough free memory to run the model on this phone (it needs about " +
+                        "${needed / 1_000_000} MB, ${free / 1_000_000} MB is free). Close other apps, or choose a smaller model.",
+                )
+            }
             val engine = try {
                 Engine(EngineConfig(modelPath = file.absolutePath, backend = Backend.CPU(), maxNumTokens = 4096, cacheDir = cacheDir.absolutePath))
                     .also { it.initialize() }

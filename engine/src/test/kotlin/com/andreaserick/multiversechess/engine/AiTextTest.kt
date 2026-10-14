@@ -110,9 +110,19 @@ L-1 T3 f5 > L0 T3 f7"""
         assertEquals(2 to "Off we go!", AiText.parseChoice("3\nOff we go!", 6))
         assertEquals(1 to "Here it comes.", AiText.parseChoice("**2**. Here it comes.", 6))
         assertEquals(0 to null, AiText.parseChoice("1", 6))
+        assertEquals(1 to null, AiText.parseChoice("2\n(L0 T2) Ng8-f6; (L+1 T1) Qd8 → (L0 T2) d7 (travels between boards)", 6))
         assertEquals(3 to "Developing my knight!", AiText.parseChoice("4\n\"Developing my knight!\"", 6))
         assertNull(AiText.parseChoice("7\nToo far", 6))
         assertNull(AiText.parseChoice("I'd rather not.", 6))
+    }
+
+    @Test
+    fun `a long remark is shortened at a sentence or a word`() {
+        val long = "Black to move on L0 T1. The move is a7-a5. This would threaten the center of the board and create an immediate threat to the king."
+        assertEquals("Black to move on L0 T1. The move is a7-a5.", AiText.shorten(long))
+        val words = AiText.shorten("word ".repeat(40).trim())
+        assertTrue(words.endsWith("word…") && words.length <= AiText.MAX_REMARK)
+        assertEquals("Short and sweet.", AiText.shorten("Short and sweet."))
     }
 
     @Test

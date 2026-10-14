@@ -18,7 +18,8 @@ object AiText {
     const val PLAYER_SYSTEM = "You are a chess player with a distinct, friendly personality, playing a game of multiverse chess " +
         "on a phone. $RULES\n\nEach turn you get the position and a numbered list of legal turns that a chess engine found. " +
         "Choose one of them. Answer with the number of your choice on the first line, then one short sentence " +
-        "(at most 15 words) to your opponent about your move, in character. Nothing else."
+        "(at most 15 words) to your opponent about your move, in character, in your own words: don't repeat the " +
+        "move's notation. Nothing else."
 
     /**
      * The prompt for choosing a turn in [state] among [choices], which the engine found (best
@@ -53,8 +54,25 @@ object AiText {
         val remark = clean(reply.lines().drop(1).joinToString(" ").ifBlank { reply.substringAfter(number.toString()) })
             .trimStart(' ', '.', ':', ')', '-', '—')
             .trim('"', '“', '”', '\'', ' ')
-            .take(MAX_REMARK)
-        return number - 1 to remark.ifBlank { null }
+            .let(::shorten)
+            // A small model may just copy the move from the list, which says nothing.
+            .takeUnless { it.contains(LISTED_MOVE) }
+        return number - 1 to remark?.ifBlank { null }
+    }
+
+    /** A move as the list of choices writes it, such as "(L0 T2) Ng8-f6". */
+    private val LISTED_MOVE = Regex("""\(L[+-]?\d+ T\d+\)""")
+
+    /**
+     * [text] if it's at most [MAX_REMARK] characters; otherwise its first sentences that fit, or
+     * failing that, its words that fit followed by an ellipsis.
+     */
+    internal fun shorten(text: String): String {
+        if (text.length <= MAX_REMARK) return text
+        val head = text.take(MAX_REMARK)
+        val sentence = Regex("""[.!?](?=\s)""").findAll(head).lastOrNull()
+        if (sentence != null && sentence.range.first >= MAX_REMARK / 3) return head.take(sentence.range.first + 1)
+        return head.take(MAX_REMARK - 1).substringBeforeLast(' ').trimEnd(',', ';', ':', ' ') + "…"
     }
 
     /**

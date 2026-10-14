@@ -232,6 +232,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun undo() {
         stopJob()
+        // The AI's remark was about the turn being taken back.
+        aiRemark = null
         update { it.undo() }
     }
 
