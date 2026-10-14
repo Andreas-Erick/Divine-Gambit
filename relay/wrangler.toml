@@ -15,7 +15,7 @@ new_sqlite_classes = ["Room"]
 # with (release, then debug), for Android App Links.
 APP_PACKAGE = "com.andreaserick.multiversechess"
 APP_FINGERPRINTS = "6D:28:B9:BA:80:21:9C:FA:36:79:FE:0C:69:D7:5B:2C:88:7C:F7:DA:47:DA:9A:05:6C:EA:2C:1F:0C:5B:D8:E5,E4:7D:91:0B:92:D9:A7:1D:88:56:F0:D6:83:07:F4:1C:AB:00:BD:72:2C:AC:0D:D6:8F:5E:B1:E5:70:72:5B:69"
-DOWNLOAD_URL = "https://github.com/Andreas-Erick/5D-Chess/releases/latest"
+DOWNLOAD_URL = "https://github.com/Andreas-Erick/multiverse-chess/releases/latest"
 
 # Per-IP limits on the API (see allowed() in src/index.js), so nobody can use up the account's
 # daily allowance or try game codes in bulk. A period is 10 or 60 seconds.

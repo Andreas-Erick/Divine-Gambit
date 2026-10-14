@@ -4,7 +4,7 @@ Chess with time travel and parallel timelines, for Android. Send a knight two tu
 and the timeline splits; play both futures at once; protect your kings in the present *and* the
 past. Play the computer, a friend on the same phone, or a friend on their own phone, anywhere.
 
-**[Download the latest APK](https://github.com/Andreas-Erick/5D-Chess/releases/latest)**
+**[Download the latest APK](https://github.com/Andreas-Erick/multiverse-chess/releases/latest)**
 
 Inspired by *5D Chess With Multiverse Time Travel*. This is an independent fan project. It is not
 affiliated with or endorsed by the original game's developers, and it uses none of the original
@@ -27,6 +27,7 @@ game's code or assets.
 * [How the rules are checked](#how-the-rules-are-checked)
 * [Building](#building)
 * [Known simplifications](#known-simplifications)
+* [License](#license)
 
 ## Features
 
@@ -52,7 +53,7 @@ game's code or assets.
 ## Installing
 
 1. On your phone (Android 7.0 or newer), open the
-   [latest release](https://github.com/Andreas-Erick/5D-Chess/releases/latest) and download the
+   [latest release](https://github.com/Andreas-Erick/multiverse-chess/releases/latest) and download the
    `.apk` file.
 2. Open it, and allow installing from your browser or file manager when Android asks.
 
@@ -155,7 +156,7 @@ claim a checkmate that isn't one.
 ## Variants
 
 Pick a variant in the menu before starting a game. Fairy pieces are drawn as discs with their
-5D chess notation letter.
+letter: S, U, D, W, Y or C.
 
 | Variant | Setup |
 | --- | --- |
@@ -254,8 +255,6 @@ tested quickly on the JVM:
 | `relay/` | Cloudflare Worker that online games meet through: it keeps each game's turns in order and passes them between the two phones. |
 | `docs/screenshots/` | The screenshots in this README. |
 
-The UI uses the Lora typeface (SIL Open Font License, see
-`app/src/main/assets/licenses/Lora-OFL.txt`).
 
 ## Known simplifications
 
@@ -274,3 +273,12 @@ The UI uses the Lora typeface (SIL Open Font License, see
   shows when you open it. The menu remembers one online game to continue, so joining another
   replaces it.
 * Pieces are drawn with the Unicode chess symbols from the system font.
+
+## License
+
+The code is released under the [MIT License](LICENSE). The Lora typeface in
+`app/src/main/res/font/` is under the SIL Open Font License (see
+`app/src/main/assets/licenses/Lora-OFL.txt`).
+
+*5D Chess With Multiverse Time Travel* is named here only to say what inspired this project. Its
+name belongs to its developers, who aren't affiliated with this project and haven't endorsed it.
