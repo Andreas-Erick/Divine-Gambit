@@ -69,6 +69,25 @@ class SessionAndComputerTest {
     }
 
     @Test
+    fun `after checkmate the loser's moves can be tried but not submitted`() {
+        val puzzle = Puzzles.all.first()
+        var session = GameSession(GameMode(puzzle = puzzle))
+        for ((from, to) in puzzle.solution) session = session.tap(from).tap(to)
+        session = session.submit()
+        assertEquals(Outcome.Checkmate(Side.WHITE), session.outcome)
+        assertEquals(Side.BLACK, session.state.sideToMove)
+
+        val move = session.state.allMoves().first()
+        val tried = session.tap(move.from).tap(move.to)
+        assertEquals(listOf(move), tried.state.turnMoves)
+        val refused = tried.submit()
+        assertEquals(Outcome.Checkmate(Side.WHITE), refused.outcome)
+        assertEquals(tried.state, refused.state)
+        assertNotNull(refused.message)
+        assertEquals(session.state, refused.undo().state)
+    }
+
+    @Test
     fun `resigning ends the game`() {
         val session = GameSession(GameMode(computerSide = Side.WHITE)).resign()
         assertEquals(Side.WHITE, assertIs<Outcome.Resignation>(session.outcome).winner)

@@ -300,7 +300,7 @@ fun MultiverseView(
         }) {
             drawMultiverse(session, targets, threats, glyphs, labels, textMeasurer, visible, detailed = Layout.SQ * camera.scale >= 10f)
         }
-        drawTimelineRail(session.state, camera, rail, textMeasurer, labels.rail)
+        drawTimelineRail(session.state, threats.mapTo(HashSet()) { it.from.l }, camera, rail, textMeasurer, labels.rail)
     }
 }
 
@@ -369,10 +369,12 @@ private class TimelineRail {
 
 /**
  * Chips naming timelines whose own label is out of sight (scrolled off to the left, or too small
- * to read), pinned to the left edge in screen space. Tapping one frames that timeline.
+ * to read), pinned to the left edge in screen space. Tapping one frames that timeline. A gold ring
+ * means the timeline must be played, a red one that it's in [checked].
  */
 private fun DrawScope.drawTimelineRail(
     state: GameState,
+    checked: Set<Int>,
     camera: CameraState,
     rail: TimelineRail,
     textMeasurer: TextMeasurer,
@@ -400,15 +402,19 @@ private fun DrawScope.drawTimelineRail(
         lastBottom = top + chipSize.height
         val chip = Rect(Offset(margin, top), chipSize)
         val radius = CornerRadius(chipSize.height / 2)
-        val must = l in mandatory
+        val ring = when (l) {
+            in checked -> Palette.threat
+            in mandatory -> Palette.gold
+            else -> null
+        }
         drawRoundRect(Palette.slab, chip.topLeft + Offset(2.dp.toPx(), 3.dp.toPx()), chipSize, radius)
         drawRoundRect(Palette.card, chip.topLeft, chipSize, radius)
         drawRoundRect(
-            if (must) Palette.gold else Palette.presentEdge,
+            ring ?: Palette.presentEdge,
             chip.topLeft,
             chipSize,
             radius,
-            style = Stroke(width = (if (must) 2.5f else 1f).dp.toPx()),
+            style = Stroke(width = (if (ring != null) 2.5f else 1f).dp.toPx()),
         )
         drawText(text, topLeft = Offset(margin + padX, top + padY))
         rail.chips += l to chip
@@ -476,6 +482,7 @@ private fun DrawScope.drawMultiverse(
     val side = state.sideToMove
     val mandatory = state.mandatoryTimelines.toSet()
     val ongoing = session.outcome == Outcome.Ongoing
+    val canMove = ongoing || session.isExploring
 
     // Alternate a faint band behind every other timeline row to make rows easy to follow.
     val firstRow = floor(visible.top / Layout.ROW).toInt() - 1
@@ -507,6 +514,18 @@ private fun DrawScope.drawMultiverse(
         }
     }
 
+    // A purple arrow on the present, beyond the edge where the side to move's next timeline would
+    // appear, when that timeline would be active (and so could move the present).
+    val nextTimeline = if (side == Side.WHITE) state.whiteTimelines + 1 else -(state.blackTimelines + 1)
+    if (ongoing && state.isActive(nextTimeline)) {
+        val x = state.present * Layout.COL + Layout.BOARD / 2
+        if (side == Side.WHITE) {
+            drawBranchArrow(Offset(x, state.timelines.keys.max() * Layout.ROW + Layout.BOARD + Layout.SQ * 1.6f), 1f)
+        } else {
+            drawBranchArrow(Offset(x, state.timelines.keys.min() * Layout.ROW - Layout.SQ * 2.6f), -1f)
+        }
+    }
+
     // Squares highlighted because of the last or current turn.
     val turnMoves = session.lastTurn + state.turnMoves
     val recentSquares = turnMoves.filter { it.isSpatial }
@@ -524,7 +543,7 @@ private fun DrawScope.drawMultiverse(
             val rect = Layout.boardRect(timeline.index, t)
             if (!rect.inflate(Layout.SQ * 2).overlaps(visible)) continue
             val board = timeline.boardAt(t)!!
-            val playable = ongoing && t == timeline.end && Side.toMoveAt(t) == side
+            val playable = canMove && t == timeline.end && Side.toMoveAt(t) == side
             drawBoardCard(rect, Side.toMoveAt(t), playable, must = timeline.index in mandatory)
 
             drawBoard(board, rect.topLeft, glyphs, detailed) { x, y ->
@@ -562,7 +581,11 @@ private fun DrawScope.drawMultiverse(
             }
             drawText(caption, topLeft = Offset(captionLeft, captionBottom - caption.size.height))
 
-            if (!active) drawRect(Palette.floor.copy(alpha = 0.6f), rect.topLeft, rect.size)
+            // Fade inactive timelines, and while a piece is selected, the boards it can't land on
+            // (the opponent's, half a turn out of step).
+            if (!active || (session.selected != null && Side.toMoveAt(t) != side)) {
+                drawRect(Palette.floor.copy(alpha = 0.6f), rect.topLeft, rect.size)
+            }
         }
         if (timeline.parent == null) {
             val labelX = timeline.start * Layout.COL - label.size.width - Layout.SQ * 0.9f
@@ -578,6 +601,35 @@ private fun DrawScope.drawMultiverse(
     for (threat in threats) {
         drawCurvedArrow(Layout.squareCenter(threat.from), Layout.squareCenter(threat.to), Palette.threat)
     }
+    // A check indicator on each timeline whose advancement lets a king be captured.
+    for (l in threats.mapTo(HashSet()) { it.from.l }) {
+        val rect = Layout.boardRect(l, state.timelines.getValue(l).end)
+        val center = Offset(rect.right + Layout.SQ * 0.75f, rect.top - Layout.SQ * 0.75f)
+        drawCircle(Palette.slab, Layout.SQ * 0.8f, center + Layout.SLAB * 0.6f)
+        drawCircle(Palette.threat, Layout.SQ * 0.8f, center)
+        val mark = textMeasurer.measure("!", labels.timeline.copy(color = Color.White))
+        drawText(mark, topLeft = center - Offset(mark.size.width / 2f, mark.size.height / 2f))
+    }
+}
+
+/** A block arrow from [base], pointing down ([direction] 1) or up (-1). */
+private fun DrawScope.drawBranchArrow(base: Offset, direction: Float) {
+    val shaft = Layout.SQ * 0.65f
+    val head = Layout.SQ * 1.5f
+    val neck = base.y + direction * Layout.SQ * 1.3f
+    val tip = base.y + direction * Layout.SQ * 3f
+    val path = Path().apply {
+        moveTo(base.x - shaft, base.y)
+        lineTo(base.x - shaft, neck)
+        lineTo(base.x - head, neck)
+        lineTo(base.x, tip)
+        lineTo(base.x + head, neck)
+        lineTo(base.x + shaft, neck)
+        lineTo(base.x + shaft, base.y)
+        close()
+    }
+    withTransform({ translate(Layout.SLAB.x, Layout.SLAB.y) }) { drawPath(path, Palette.slab) }
+    drawPath(path, Palette.ribbon)
 }
 
 /**

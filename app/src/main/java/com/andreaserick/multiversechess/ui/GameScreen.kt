@@ -211,7 +211,9 @@ fun GameScreen(
                         }) { Text("Present") }
                         PrimaryPill(
                             onClick = onSubmit,
-                            enabled = state.canSubmit && !thinking && !session.isComputerTurn && ongoing,
+                            // After the game, Submit explains why the moves tried can't be played.
+                            enabled = !thinking && !session.isComputerTurn &&
+                                ((ongoing && state.canSubmit) || (session.isExploring && state.turnMoves.isNotEmpty())),
                             modifier = Modifier.weight(1f),
                         ) { Text("Submit", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
@@ -360,6 +362,9 @@ private fun headline(session: GameSession, thinking: Boolean): String {
 }
 
 private fun detail(session: GameSession): String {
+    if (session.isExploring) {
+        return outcomeText(session.outcome) + " Try ${session.state.sideToMove.displayName}'s moves to see why."
+    }
     if (session.outcome != Outcome.Ongoing) return outcomeText(session.outcome)
     val state = session.state
     val parts = mutableListOf("Present: turn ${Notation.turnNumber(state.present)}")

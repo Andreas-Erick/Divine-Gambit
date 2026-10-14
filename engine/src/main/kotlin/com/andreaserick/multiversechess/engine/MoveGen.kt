@@ -148,14 +148,14 @@ private fun GameState.addPawnMoves(from: Pos, board: Board, piece: Piece, captur
     for (dt in intArrayOf(-1, 1)) capture(from.copy(l = from.l + dl, t = from.t + 2 * dt))
 
     if (piece.type == PieceType.BRAWN) {
-        // Also one step forward along the rank or timeline axis combined with one step along any
-        // other axis in either direction, except the pawn's two diagonals already covered above.
+        // Also every other diagonal that includes a forward step (rank or timeline) and no backward
+        // one: forward along the rank with a step in time, forward along the timeline with a step
+        // along the file, and forward along both.
         for (d in intArrayOf(-1, 1)) {
             capture(from.copy(y = from.y + dy, t = from.t + 2 * d))
-            capture(from.copy(y = from.y + dy, l = from.l + d))
             capture(from.copy(l = from.l + dl, x = from.x + d))
-            if (d != dy) capture(from.copy(l = from.l + dl, y = from.y + d))
         }
+        capture(from.copy(y = from.y + dy, l = from.l + dl))
     }
 }
 

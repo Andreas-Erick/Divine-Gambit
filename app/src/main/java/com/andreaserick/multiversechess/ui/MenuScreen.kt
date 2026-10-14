@@ -273,13 +273,18 @@ private val RULES = listOf(
         "on every board in it (gold ring), may move on your other raised boards, then tap Submit.",
     "Active timelines" to
         "Each player may have only one more active timeline than the opponent. Extra timelines are " +
-        "faded and don't hold back the present.",
+        "faded and don't hold back the present. A purple arrow at the end of the present means " +
+        "your next new timeline would be active, so branching into the past would pull the " +
+        "present back with it.",
     "Check and mate" to
         "You can't submit a turn that lets the opponent capture any of your kings, now or in the " +
-        "past. With no legal turn you are checkmated, or stalemated if no king is threatened.",
+        "past. A red ! marks a timeline whose advancement would let a king be captured. With no " +
+        "way to move the present without leaving a king attacked you are checkmated, or " +
+        "stalemated if no king is threatened. After the game you can still try the loser's " +
+        "moves to see why.",
     "Fairy pieces" to
         "Some variants add pieces drawn as lettered discs. S, princess: a rook or bishop move. " +
         "U, unicorn: equal distance along exactly three dimensions. D, dragon: equal distance " +
-        "along all four. W, brawn: a pawn that can also capture by combining one step forward " +
-        "(rank or timeline) with one step along any other dimension.",
+        "along all four. W, brawn: a pawn that can capture one step along any diagonal that " +
+        "includes a forward step (rank or timeline) and no backward one.",
 )
