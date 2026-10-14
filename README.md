@@ -79,7 +79,7 @@ game's code or assets.
 | Tap a board that's too small to play on | Zoom in on it. |
 | Corners button (top right) | Show the whole multiverse. |
 | **Present** | Back to the boards you have to play. |
-| Row-of-boards button | **History view**: only the selected piece's timeline, through time, with your opponent's boards hidden. |
+| Row-of-boards button | **History view**: only the selected piece's timeline, through time, with your opponent's boards hidden and the gaps they leave closed up, so each column is one full turn. |
 | Column-of-boards button | **Parallel view**: only the selected piece's moment, across every timeline. |
 
 Without a piece selected, the History and Parallel views use the first board you have to play.

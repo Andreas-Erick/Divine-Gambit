@@ -112,9 +112,10 @@ fun GameScreen(
     }
 
     // A slice view frames what it keeps, and follows the selected piece to another timeline (for
-    // History) or another moment (for Parallel).
+    // History, which also lays out each side's boards differently) or another moment (for Parallel).
     val anchor = session.sliceAnchor()
-    LaunchedEffect(slice, if (slice == SliceView.HISTORY) anchor.l else anchor.t, camera.viewSize) {
+    val sliceKey = if (slice == SliceView.HISTORY) anchor.l to Math.floorMod(anchor.t, 2) else anchor.t
+    LaunchedEffect(slice, sliceKey, camera.viewSize) {
         slice?.let { camera.frame(state.sliceArea(it, anchor), TIMELINE_MIN_BOARD) }
     }
 
@@ -198,7 +199,13 @@ fun GameScreen(
                 Triple(SliceView.HISTORY, HistoryIcon, "History view: this timeline through time"),
                 Triple(SliceView.PARALLEL, ParallelIcon, "Parallel view: this moment across timelines"),
             )) {
-                RoundIconButton(icon, label, { slice = if (slice == view) null else view }, selected = slice == view)
+                RoundIconButton(icon, label, {
+                    // Leaving History view spreads the boards out again: stay on the same board.
+                    if (slice == SliceView.HISTORY && view == SliceView.HISTORY) {
+                        scope.launch { camera.focus(Layout.boardRect(anchor.l, anchor.t)) }
+                    }
+                    slice = if (slice == view) null else view
+                }, selected = slice == view)
             }
         }
 
