@@ -15,6 +15,8 @@ import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Puzzle
 import com.andreaserick.multiversechess.engine.Puzzles
+import com.andreaserick.multiversechess.engine.SavedGame
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.job
@@ -42,7 +44,30 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private var job: Job? = null
 
+    /** Where the current game is kept, so it survives the app being closed. */
+    private val saveFile = File(application.filesDir, "game.txt")
+
+    /** Saves run one at a time, in order, off the main thread. */
+    private val saving = Dispatchers.IO.limitedParallelism(1)
+
+    /** An unfinished game that can be continued from the menu. */
+    var resumable by mutableStateOf<GameSession?>(null)
+        private set
+
+    init {
+        viewModelScope.launch {
+            val saved = withContext(saving) {
+                runCatching { saveFile.takeIf { it.exists() }?.readText()?.let(SavedGame::decode) }.getOrNull()
+            }
+            if (session == null && saved != null && saved.outcome == Outcome.Ongoing) resumable = saved
+        }
+    }
+
     fun startGame(mode: GameMode) = show(GameSession(mode))
+
+    fun continueGame() {
+        resumable?.let { show(it) }
+    }
 
     fun openPuzzles() {
         showingPuzzles = true
@@ -61,6 +86,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun back() {
         stopJob()
         if (session == null) showingPuzzles = false
+        session?.let { if (it.mode.puzzle == null && it.outcome == Outcome.Ongoing) resumable = it }
         session = null
     }
 
@@ -95,8 +121,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val previous = session
         session = next
         recordSolved(previous, next)
+        save(next)
         if (next.isComputerTurn) {
             runInBackground(next) { session, stop -> session.applyComputerTurn(ComputerPlayer().chooseTurn(session.state, stop)) }
+        }
+    }
+
+    /** Keeps [game] on disk while it's unfinished; a finished game (or a puzzle) isn't kept. */
+    private fun save(game: GameSession) {
+        if (game.mode.puzzle != null) return
+        resumable = null
+        viewModelScope.launch(saving) {
+            runCatching {
+                if (game.outcome == Outcome.Ongoing) saveFile.writeText(SavedGame.encode(game)) else saveFile.delete()
+            }
         }
     }
 

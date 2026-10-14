@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.GameMode
 import com.andreaserick.multiversechess.engine.GameSession
+import com.andreaserick.multiversechess.engine.Notation
 import com.andreaserick.multiversechess.engine.Side
 import com.andreaserick.multiversechess.engine.Variant
 import kotlin.math.PI
@@ -55,6 +56,8 @@ import kotlin.math.sin
 @Composable
 fun MenuScreen(
     onStart: (GameMode) -> Unit,
+    resumable: GameSession?,
+    onContinue: () -> Unit,
     onPuzzles: () -> Unit,
     puzzleProgress: String,
     modifier: Modifier = Modifier,
@@ -93,6 +96,19 @@ fun MenuScreen(
 
             SlabCard(Modifier.widthIn(max = 440.dp).fillMaxWidth()) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (resumable != null) {
+                        PrimaryPill(onClick = onContinue, modifier = Modifier.fillMaxWidth()) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Continue game")
+                                Text(
+                                    resumeSummary(resumable),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.8f),
+                                )
+                            }
+                        }
+                        HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("New game", style = MaterialTheme.typography.titleLarge)
@@ -218,6 +234,15 @@ private fun TimeVortex(modifier: Modifier = Modifier) {
             ),
         )
     }
+}
+
+/** E.g. "vs computer · Standard · turn 12 · 3 timelines". */
+private fun resumeSummary(game: GameSession): String {
+    val parts = mutableListOf(if (game.mode.computerSide != null) "vs computer" else "Pass and play")
+    parts += game.mode.variant.displayName
+    parts += "turn ${Notation.turnNumber(game.state.present)}"
+    if (game.state.timelines.size > 1) parts += "${game.state.timelines.size} timelines"
+    return parts.joinToString(" · ")
 }
 
 private val LIMITS = listOf<Int?>(GameSession.DEFAULT_TIMELINE_LIMIT, 8, null)

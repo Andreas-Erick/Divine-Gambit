@@ -165,7 +165,9 @@ class CameraState {
     var worldBounds = Rect.Zero
 
     private val hasSize get() = viewSize.width > 0 && viewSize.height > 0
-    private var initialized = false
+    /** Whether the camera has been placed yet (the first focus jumps there instead of gliding). */
+    var initialized = false
+        private set
 
     /** Animations take this so a new one, or a finger on the screen, cancels the one running. */
     private val mutex = MutatorMutex()
