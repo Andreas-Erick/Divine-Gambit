@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/screenshots/icon.png" width="128" alt="The app icon: a knight bursting out of a gold-ringed portal onto a swirling board"></p>
+
 # Multiverse Chess (Android)
 
 Chess with time travel and parallel timelines, for Android. Send a knight two turns into the past
@@ -11,7 +13,7 @@ affiliated with or endorsed by the original game's developers, and it uses none 
 game's code or assets.
 
 <p align="center">
-  <img src="docs/screenshots/menu.png" width="250" alt="Main menu: a turning checkerboard vortex among the stars, over a night-blue card of game options">
+  <img src="docs/screenshots/menu.png" width="250" alt="Main menu: a turning checkerboard vortex among the stars, over a night-blue card of game options with an AI opponent chosen">
   <img src="docs/screenshots/time-travel.png" width="250" alt="A knight's jump back in time, drawn as an arrow from timeline +1 into the past of timeline 0, which branches timeline -1">
   <img src="docs/screenshots/overview.png" width="250" alt="Overview of a game with three timelines branching from the original">
 </p>
@@ -182,6 +184,12 @@ kept. Both apps check every move against the rules, so a modified app can't play
 claim a checkmate that isn't one.
 
 ## AI opponent
+
+<p align="center">
+  <img src="docs/screenshots/ai-settings.png" width="250" alt="AI opponent settings: Off, Gemini, a model on your computer or a model on this phone, with Qwen3 0.6B downloaded and chosen">
+  <img src="docs/screenshots/ai-game.png" width="250" alt="A game against Deepseek 14B, which comments on its move: Opening up the kingside with a pawn storm! Prepare for the fianchetto!">
+  <img src="docs/screenshots/ai-puzzles.png" width="250" alt="The puzzle list's Puzzles by AI card, with an optional theme and a button to ask Deepseek 14B for a puzzle">
+</p>
 
 **AI opponent** (at the bottom of the menu) connects a language model, in one of three ways:
 
