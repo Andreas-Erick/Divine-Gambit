@@ -94,9 +94,9 @@ fun GameScreen(
         Row(
             Modifier
                 .fillMaxWidth()
+                .onSizeChanged { camera.coveredTop = it.height.toFloat() + 40f }
                 .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-                .onSizeChanged { camera.coveredTop = it.height.toFloat() + 40f },
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onExit)
@@ -142,14 +142,25 @@ fun GameScreen(
             }
         }
 
+        // Below the tools: zoom out to the whole multiverse.
+        RoundIconButton(
+            OverviewIcon,
+            "Show the whole multiverse",
+            { scope.launch { camera.frame(state.overviewArea()) } },
+            Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 68.dp, end = 12.dp),
+        )
+
         // Bottom: status and turn controls.
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .onSizeChanged { camera.coveredBottom = it.height.toFloat() + 40f }
                 .navigationBarsPadding()
-                .padding(12.dp)
-                .onSizeChanged { camera.coveredBottom = it.height.toFloat() + 40f },
+                .padding(12.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
             SlabCard(Modifier.widthIn(max = 560.dp).fillMaxWidth()) {

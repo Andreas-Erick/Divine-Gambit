@@ -1,17 +1,30 @@
 package com.andreaserick.multiversechess.ui
 
+import androidx.compose.animation.core.AnimationState
+import androidx.compose.animation.core.DecayAnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateDecay
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.splineBasedDecay
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.MutatePriority
+import androidx.compose.foundation.MutatorMutex
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -20,6 +33,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -27,7 +41,10 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
@@ -38,6 +55,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.andreaserick.multiversechess.engine.BOARD_SIZE
 import com.andreaserick.multiversechess.engine.Board
 import com.andreaserick.multiversechess.engine.GameSession
@@ -48,6 +67,9 @@ import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.engine.PieceType
 import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Side
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.floor
@@ -90,6 +112,13 @@ internal object Layout {
         if (x !in 0 until BOARD_SIZE || row !in 0 until BOARD_SIZE) return null
         return Pos(l, t, x, BOARD_SIZE - 1 - row)
     }
+
+    /** The timeline whose row (boards, ribbon, label or the gaps around them) contains [world]. */
+    fun timelineAt(world: Offset, state: GameState): Int? {
+        val l = floor((world.y + GAP_Y / 2) / ROW).toInt()
+        val timeline = state.timelines[l] ?: return null
+        return l.takeIf { world.x in timeline.start * COL - GAP_X..timeline.end * COL + BOARD + GAP_X }
+    }
 }
 
 /** Pan and zoom of the multiverse view. Screen position = world * scale + offset. */
@@ -103,16 +132,43 @@ class CameraState {
     var coveredTop by mutableFloatStateOf(0f)
     var coveredBottom by mutableFloatStateOf(0f)
 
+    /** Everything drawn, in world units, so the camera can always zoom out far enough to see it all. */
+    var worldBounds = Rect.Zero
+
     private val hasSize get() = viewSize.width > 0 && viewSize.height > 0
     private var initialized = false
 
+    /** Animations take this so a new one, or a finger on the screen, cancels the one running. */
+    private val mutex = MutatorMutex()
+
+    private val usableHeight get() = viewSize.height - coveredTop - coveredBottom
+
+    private val minScale: Float
+        get() = if (!hasSize || worldBounds.isEmpty) MIN_SCALE else min(MIN_SCALE, fitScale(worldBounds, 1f) * 0.6f)
+
     fun toWorld(screen: Offset): Offset = (screen - offset) / scale
 
+    fun toScreen(world: Offset): Offset = world * scale + offset
+
     fun transform(centroid: Offset, pan: Offset, zoom: Float) {
-        val newScale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
+        val newScale = (scale * zoom).coerceIn(minScale, MAX_SCALE)
         offset = centroid - (centroid - offset) * (newScale / scale) + pan
         scale = newScale
     }
+
+    /** Stops any glide or fling, because the player has taken hold of the view. */
+    suspend fun stop() = mutex.mutate(MutatePriority.UserInput) {}
+
+    /** Keeps the view sliding after a pan is released, slowing to a stop. */
+    suspend fun fling(velocity: Offset, decay: DecayAnimationSpec<Offset>) = mutex.mutate {
+        AnimationState(Offset.VectorConverter, offset, velocity).animateDecay(decay) { offset = value }
+    }
+
+    /** The scale at which [area] fills [fill] of the view's width or most of its uncovered height. */
+    private fun fitScale(area: Rect, fill: Float) = min(
+        viewSize.width * fill / (area.width + Layout.SQ),
+        usableHeight * 0.9f / (area.height + Layout.SQ * 2),
+    )
 
     /**
      * Glides to center [area] (in world units) in the uncovered part of the view. The first time,
@@ -121,25 +177,38 @@ class CameraState {
      */
     suspend fun focus(area: Rect, resetZoom: Boolean = false) {
         if (!hasSize) return
-        val usableHeight = viewSize.height - coveredTop - coveredBottom
-        val fit = min(
-            viewSize.width * 0.62f / (area.width + Layout.SQ),
-            usableHeight * 0.9f / (area.height + Layout.SQ * 2),
-        ).coerceIn(MIN_SCALE, MAX_SCALE)
-        val targetScale = if (resetZoom || !initialized || fit < scale) fit else scale
-        val center = Offset(viewSize.width / 2f, coveredTop + usableHeight / 2f)
-        val targetOffset = center - area.center * targetScale
+        val fit = fitScale(area, 0.62f).coerceIn(minScale, MAX_SCALE)
+        moveTo(area.center, if (resetZoom || !initialized || fit < scale) fit else scale)
+    }
+
+    /**
+     * Glides and zooms so [area] fills the view. If that would shrink boards below [minBoardWidth]
+     * (a fraction of the view's width), it zooms only that far and shows the area's latest end.
+     */
+    suspend fun frame(area: Rect, minBoardWidth: Float = 0f) {
+        if (!hasSize) return
+        val targetScale = fitScale(area, 0.92f)
+            .coerceAtLeast(viewSize.width * minBoardWidth / Layout.BOARD)
+            .coerceIn(minScale, MAX_SCALE)
+        val halfWidth = viewSize.width / 2f / targetScale
+        moveTo(Offset(maxOf(area.center.x, area.right + Layout.SQ - halfWidth), area.center.y), targetScale)
+    }
+
+    private suspend fun moveTo(center: Offset, targetScale: Float) {
+        val targetOffset = Offset(viewSize.width / 2f, coveredTop + usableHeight / 2f) - center * targetScale
         if (!initialized) {
             initialized = true
             scale = targetScale
             offset = targetOffset
             return
         }
-        val startOffset = offset
-        val startScale = scale
-        animate(0f, 1f, animationSpec = tween(520, easing = FastOutSlowInEasing)) { f, _ ->
-            scale = startScale + (targetScale - startScale) * f
-            offset = startOffset + (targetOffset - startOffset) * f
+        mutex.mutate {
+            val startOffset = offset
+            val startScale = scale
+            animate(0f, 1f, animationSpec = tween(520, easing = FastOutSlowInEasing)) { f, _ ->
+                scale = startScale + (targetScale - startScale) * f
+                offset = startOffset + (targetOffset - startOffset) * f
+            }
         }
     }
 
@@ -148,6 +217,8 @@ class CameraState {
         const val MAX_SCALE = 6f
     }
 }
+
+private fun union(a: Rect, b: Rect) = Rect(min(a.left, b.left), min(a.top, b.top), maxOf(a.right, b.right), maxOf(a.bottom, b.bottom))
 
 /** The board to show for this position: the first present board the player must move on. */
 internal fun GameState.focusBoard(): Pair<Int, Int> {
@@ -158,9 +229,18 @@ internal fun GameState.focusBoard(): Pair<Int, Int> {
 /** The area the camera should frame: every board the player must move on (or may, if none). */
 internal fun GameState.focusArea(): Rect {
     val ls = mandatoryTimelines.ifEmpty { playableTimelines().map { it.index } }.ifEmpty { listOf(0) }
-    return ls.map { Layout.boardRect(it, timelines.getValue(it).end) }
-        .reduce { a, b -> Rect(min(a.left, b.left), min(a.top, b.top), maxOf(a.right, b.right), maxOf(a.bottom, b.bottom)) }
+    return ls.map { Layout.boardRect(it, timelines.getValue(it).end) }.reduce(::union)
 }
+
+/** Every board of [l], from its first to its latest. */
+internal fun GameState.timelineArea(l: Int): Rect {
+    val timeline = timelines.getValue(l)
+    return union(Layout.boardRect(l, timeline.start), Layout.boardRect(l, timeline.end))
+}
+
+/** The whole multiverse, with room for labels and the arrows into the future. */
+internal fun GameState.overviewArea(): Rect =
+    timelines.keys.map { timelineArea(it) }.reduce(::union).inflate(Layout.SQ * 2)
 
 @Composable
 fun MultiverseView(
@@ -171,24 +251,42 @@ fun MultiverseView(
 ) {
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
     val currentSession by rememberUpdatedState(session)
     val currentOnTap by rememberUpdatedState(onTap)
     val targets = remember(session) { session.targets }
     val threats = remember(session) { session.state.threats() }
     val glyphs = remember(textMeasurer, density) { measurePieceGlyphs(textMeasurer, density) }
     val labels = remember(textMeasurer, density) { LabelStyles(density) }
+    val rail = remember { TimelineRail() }
+    camera.worldBounds = remember(session.state) { session.state.overviewArea() }
 
     Canvas(
         modifier
             .clipToBounds()
             .onSizeChanged { camera.viewSize = it }
-            .pointerInput(camera) {
-                detectTransformGestures { centroid, pan, zoom, _ -> camera.transform(centroid, pan, zoom) }
-            }
+            .pointerInput(camera) { detectCameraGestures(camera) }
             .pointerInput(camera) {
                 detectTapGestures { tap ->
-                    val pos = Layout.hitTest(camera.toWorld(tap)) ?: return@detectTapGestures
-                    if (currentSession.state.boardAt(pos.l, pos.t) != null) currentOnTap(pos)
+                    val state = currentSession.state
+                    rail.hit(tap)?.let { l ->
+                        scope.launch { camera.frame(state.timelineArea(l), TIMELINE_MIN_BOARD) }
+                        return@detectTapGestures
+                    }
+                    val world = camera.toWorld(tap)
+                    val pos = Layout.hitTest(world)
+                    if (pos != null && state.boardAt(pos.l, pos.t) != null) {
+                        // Squares too small to aim at: zoom in on the board instead of picking one.
+                        if (Layout.SQ * camera.scale < MIN_TAPPABLE_SQUARE.toPx()) {
+                            scope.launch { camera.frame(Layout.boardRect(pos.l, pos.t)) }
+                        } else {
+                            currentOnTap(pos)
+                        }
+                        return@detectTapGestures
+                    }
+                    Layout.timelineAt(world, state)?.let { l ->
+                        scope.launch { camera.frame(state.timelineArea(l), TIMELINE_MIN_BOARD) }
+                    }
                 }
             },
     ) {
@@ -198,8 +296,116 @@ fun MultiverseView(
             translate(camera.offset.x, camera.offset.y)
             scale(camera.scale, camera.scale, pivot = Offset.Zero)
         }) {
-            drawMultiverse(session, targets, threats, glyphs, labels, textMeasurer, visible)
+            drawMultiverse(session, targets, threats, glyphs, labels, textMeasurer, visible, detailed = Layout.SQ * camera.scale >= 10f)
         }
+        drawTimelineRail(session.state, camera, rail, textMeasurer, labels.rail)
+    }
+}
+
+/** Squares smaller than this on screen are too small to tap reliably. */
+private val MIN_TAPPABLE_SQUARE = 14.dp
+
+/** When framing a long timeline, boards stay at least this fraction of the view's width. */
+private const val TIMELINE_MIN_BOARD = 0.24f
+
+/**
+ * Pinch to zoom and drag to pan, like detectTransformGestures, plus a fling when a one-finger
+ * pan is released. Touching the view stops any glide or fling in progress.
+ */
+private suspend fun PointerInputScope.detectCameraGestures(camera: CameraState) {
+    val decay = splineBasedDecay<Offset>(this)
+    coroutineScope {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            launch { camera.stop() }
+            val tracker = VelocityTracker()
+            var pastSlop = false
+            var slopPan = Offset.Zero
+            var slopZoom = 1f
+            do {
+                val event = awaitPointerEvent()
+                if (event.changes.any { it.isConsumed }) break
+                val zoom = event.calculateZoom()
+                val pan = event.calculatePan()
+                if (!pastSlop) {
+                    slopZoom *= zoom
+                    slopPan += pan
+                    val zoomMotion = abs(1 - slopZoom) * event.calculateCentroidSize(useCurrent = false)
+                    pastSlop = zoomMotion > viewConfiguration.touchSlop || slopPan.getDistance() > viewConfiguration.touchSlop
+                }
+                if (pastSlop) {
+                    // With no finger down before this event (such as the final lift) there's no centroid.
+                    val centroid = event.calculateCentroid(useCurrent = false)
+                    if (centroid.isSpecified && (zoom != 1f || pan != Offset.Zero)) camera.transform(centroid, pan, zoom)
+                    event.changes.forEach { if (it.positionChanged()) it.consume() }
+                }
+                // Only one-finger movement flings; a finger lifting out of a pinch shouldn't.
+                val pressed = event.changes.filter { it.pressed }
+                if (pressed.size == 1) {
+                    tracker.addPosition(pressed[0].uptimeMillis, pressed[0].position)
+                } else if (pressed.size > 1) {
+                    tracker.resetTracking()
+                }
+            } while (event.changes.any { it.pressed })
+            if (pastSlop) {
+                val velocity = tracker.calculateVelocity()
+                if (hypot(velocity.x, velocity.y) > 300f) launch { camera.fling(Offset(velocity.x, velocity.y), decay) }
+            }
+        }
+    }
+}
+
+/** Where the timeline chips along the left edge were last drawn, for tapping. */
+private class TimelineRail {
+    val chips = mutableListOf<Pair<Int, Rect>>()
+
+    fun hit(screen: Offset): Int? = chips.firstOrNull { it.second.inflate(8f).contains(screen) }?.first
+}
+
+/**
+ * Chips naming timelines whose own label is out of sight (scrolled off to the left, or too small
+ * to read), pinned to the left edge in screen space. Tapping one frames that timeline.
+ */
+private fun DrawScope.drawTimelineRail(
+    state: GameState,
+    camera: CameraState,
+    rail: TimelineRail,
+    textMeasurer: TextMeasurer,
+    style: TextStyle,
+) {
+    rail.chips.clear()
+    val margin = 10.dp.toPx()
+    val padX = 10.dp.toPx()
+    val padY = 5.dp.toPx()
+    val labelReadable = Layout.SQ * 0.75f * camera.scale >= 11.dp.toPx()
+    val mandatory = state.mandatoryTimelines.toSet()
+    var lastBottom = Float.NEGATIVE_INFINITY
+    for (timeline in state.timelines.values.sortedBy { it.index }) {
+        val l = timeline.index
+        val labelX = camera.toScreen(Offset(timeline.start * Layout.COL, 0f)).x
+        if (labelReadable && labelX > margin * 6) continue
+        val active = state.isActive(l)
+        val text = textMeasurer.measure("L${Notation.timelineLabel(l)}", style.copy(color = if (active) Palette.ink else Palette.inkSoft))
+        val chipSize = Size(text.size.width + padX * 2, text.size.height + padY * 2)
+        // Sits in the gap above its row, where the world-space labels of branches go.
+        val top = camera.toScreen(Offset(0f, l * Layout.ROW - Layout.GAP_Y / 2)).y - chipSize.height / 2
+        if (top < camera.coveredTop - 40f || top + chipSize.height > size.height - camera.coveredBottom + 40f) continue
+        if (top < lastBottom + 4f) continue
+        lastBottom = top + chipSize.height
+        val chip = Rect(Offset(margin, top), chipSize)
+        val radius = CornerRadius(chipSize.height / 2)
+        val must = l in mandatory
+        drawRoundRect(Palette.slab, chip.topLeft + Offset(2.dp.toPx(), 3.dp.toPx()), chipSize, radius)
+        drawRoundRect(Palette.card, chip.topLeft, chipSize, radius)
+        drawRoundRect(
+            if (must) Palette.gold else Palette.presentEdge,
+            chip.topLeft,
+            chipSize,
+            radius,
+            style = Stroke(width = (if (must) 2.5f else 1f).dp.toPx()),
+        )
+        drawText(text, topLeft = Offset(margin + padX, top + padY))
+        rail.chips += l to chip
     }
 }
 
@@ -211,6 +417,9 @@ internal class LabelStyles(density: Density) {
     val timeline = with(density) {
         TextStyle(color = Palette.ink, fontSize = (Layout.SQ * 0.75f).toSp(), fontFamily = SerifFamily, fontWeight = FontWeight.Bold)
     }
+
+    /** For the timeline chips pinned to the screen's edge, so in screen units. */
+    val rail = TextStyle(fontSize = 13.sp, fontFamily = SerifFamily, fontWeight = FontWeight.Bold)
 }
 
 /**
@@ -255,6 +464,7 @@ private fun DrawScope.drawMultiverse(
     labels: LabelStyles,
     textMeasurer: TextMeasurer,
     visible: Rect,
+    detailed: Boolean,
 ) {
     val state = session.state
     val side = state.sideToMove
@@ -308,7 +518,7 @@ private fun DrawScope.drawMultiverse(
             val playable = ongoing && t == timeline.end && Side.toMoveAt(t) == side
             drawBoardCard(rect, Side.toMoveAt(t), playable, must = timeline.index in mandatory)
 
-            drawBoard(board, rect.topLeft, glyphs) { x, y ->
+            drawBoard(board, rect.topLeft, glyphs, detailed) { x, y ->
                 val pos = Pos(timeline.index, t, x, y)
                 when {
                     pos == session.selected -> Palette.selection
@@ -430,13 +640,15 @@ private fun DrawScope.drawBoardCard(rect: Rect, toMove: Side, playable: Boolean,
 }
 
 /**
- * Squares and pieces of [board] with its top-left corner at [topLeft], in world units. [highlight]
- * gives an optional overlay colour for each square (file [x], rank [y]).
+ * Squares and pieces of [board] with its top-left corner at [topLeft], in world units. Unless
+ * [detailed], pieces are plain discs. [highlight] gives an optional overlay colour for each square
+ * (file [x], rank [y]).
  */
 internal fun DrawScope.drawBoard(
     board: Board,
     topLeft: Offset,
     glyphs: Map<PieceType, PieceGlyph>,
+    detailed: Boolean = true,
     highlight: (x: Int, y: Int) -> Color? = { _, _ -> null },
 ) {
     val squareSize = Size(Layout.SQ, Layout.SQ)
@@ -447,7 +659,12 @@ internal fun DrawScope.drawBoard(
     }
     for ((square, piece) in board.pieces()) {
         val center = topLeft + Offset((square.x + 0.5f) * Layout.SQ, (BOARD_SIZE - square.y - 0.5f) * Layout.SQ)
-        drawPiece(glyphs.getValue(piece.type), piece.side, center)
+        if (detailed) {
+            drawPiece(glyphs.getValue(piece.type), piece.side, center)
+        } else {
+            // Too small to read a glyph: a disc in the piece's colour keeps the position legible.
+            drawCircle(if (piece.side == Side.WHITE) Color.White else Palette.ink, Layout.SQ * 0.32f, center)
+        }
     }
 }
 
