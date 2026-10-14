@@ -1,5 +1,6 @@
 package com.andreaserick.multiversechess.ai
 
+import android.app.ActivityManager
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -78,8 +79,16 @@ class AiStore(private val context: Context) {
                 File(modelsDir, settings.deviceModel),
                 DeviceModels.byFile(settings.deviceModel)?.name ?: settings.deviceModel.substringBeforeLast('.'),
                 context.cacheDir,
+                ::freeMemory,
             )
         }
+    }
+
+    /** Memory the phone can spare before it reaches its low-memory threshold, where it starts closing apps. */
+    private fun freeMemory(): Long {
+        val info = ActivityManager.MemoryInfo()
+        context.getSystemService(ActivityManager::class.java).getMemoryInfo(info)
+        return info.availMem - info.threshold
     }
 
     private fun secret(name: String): String = prefs.getString(name, null)?.let(::open).orEmpty()

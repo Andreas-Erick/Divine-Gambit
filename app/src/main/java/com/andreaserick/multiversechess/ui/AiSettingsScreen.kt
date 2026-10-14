@@ -71,14 +71,21 @@ fun AiSettingsScreen(state: AiSettingsState, onBack: () -> Unit, modifier: Modif
     LaunchedEffect(state.test) { if (state.test != null) testing = false }
 
     // Android 17 asks before an app reaches devices on the local network, such as a model server.
-    val localNetwork = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    // The request waits for the answer; if access is refused, it fails with an explanation.
+    var afterPermission by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val localNetwork = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        afterPermission?.invoke()
+        afterPermission = null
+    }
     fun withLocalNetwork(action: () -> Unit) {
         if (settings.provider == AiProvider.SERVER && Build.VERSION.SDK_INT >= 37 &&
             ContextCompat.checkSelfPermission(context, LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
         ) {
+            afterPermission = action
             localNetwork.launch(LOCAL_NETWORK)
+        } else {
+            action()
         }
-        action()
     }
 
     OnlinePage(onBack, modifier) {
