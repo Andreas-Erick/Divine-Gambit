@@ -57,12 +57,15 @@ import com.andreaserick.multiversechess.engine.Notation
 import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Puzzle
+import com.andreaserick.multiversechess.engine.Side
+import com.andreaserick.multiversechess.online.OnlineStatus
 import kotlinx.coroutines.launch
 
 @Composable
 fun GameScreen(
     session: GameSession,
     thinking: Boolean,
+    online: OnlineStatus?,
     nextPuzzle: Puzzle?,
     onTap: (Pos) -> Unit,
     onSubmit: () -> Unit,
@@ -88,6 +91,8 @@ fun GameScreen(
     val puzzle = session.mode.puzzle
     val state = session.state
     val ongoing = session.outcome == Outcome.Ongoing
+    // Online, this player's submitted turn is still on its way.
+    val sending = online?.sending == true
 
     // A light tick for each move, and a firmer one when the turn passes.
     val haptics = LocalHapticFeedback.current
@@ -155,6 +160,7 @@ fun GameScreen(
                 Text(
                     when {
                         puzzle != null -> "Puzzle · checkmate in one turn"
+                        online != null -> "Online · ${online.nameOf(online.ticket.side)} vs ${online.opponentName}"
                         session.mode.computerSide != null -> "vs computer"
                         else -> "Pass and play"
                     },
@@ -187,12 +193,12 @@ fun GameScreen(
                         DropdownMenuItem(text = { Text("Move list") }, onClick = { showMenu = false; showLog = true })
                         DropdownMenuItem(
                             text = { Text("No legal turn?") },
-                            enabled = ongoing && !thinking && !session.isComputerTurn,
+                            enabled = ongoing && !thinking && !sending && !session.isComputerTurn && !session.isRemoteTurn,
                             onClick = { showMenu = false; onClaimNoLegalTurn() },
                         )
                         DropdownMenuItem(
                             text = { Text("Resign") },
-                            enabled = ongoing,
+                            enabled = ongoing && !sending,
                             onClick = { showMenu = false; confirmResign = true },
                         )
                     }
@@ -239,7 +245,8 @@ fun GameScreen(
         ) {
             SlabCard(Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatusLine(session, thinking)
+                    StatusLine(session, thinking || sending, online)
+                    online?.let { OnlineNote(it, session) }
                     AnimatedVisibility(session.message != null) {
                         Text(
                             session.message.orEmpty(),
@@ -248,7 +255,7 @@ fun GameScreen(
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        SecondaryPill(onClick = onUndo, enabled = session.previous != null) { Text("Undo") }
+                        SecondaryPill(onClick = onUndo, enabled = session.previous != null && !sending) { Text("Undo") }
                         SecondaryPill(onClick = {
                             slice = null
                             scope.launch { focusPresent(resetZoom = true) }
@@ -256,7 +263,7 @@ fun GameScreen(
                         PrimaryPill(
                             onClick = onSubmit,
                             // After the game, Submit explains why the moves tried can't be played.
-                            enabled = !thinking && !session.isComputerTurn &&
+                            enabled = !thinking && !sending && !session.isComputerTurn && !session.isRemoteTurn &&
                                 ((ongoing && state.canSubmit) || (session.isExploring && state.turnMoves.isNotEmpty())),
                             modifier = Modifier.weight(1f),
                         ) { Text("Submit", maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -355,7 +362,7 @@ fun GameScreen(
             text = {
                 Text(
                     when {
-                        !solved -> outcomeText(outcome)
+                        !solved -> outcomeText(outcome, online.names())
                         session.solutionShown -> "That's the checkmate. Try the next one on your own."
                         else -> "Checkmate. Every reply leaves a black king exposed somewhere in the multiverse."
                     },
@@ -366,7 +373,7 @@ fun GameScreen(
 }
 
 @Composable
-private fun StatusLine(session: GameSession, thinking: Boolean) {
+private fun StatusLine(session: GameSession, thinking: Boolean, online: OnlineStatus?) {
     val state = session.state
     val side = state.sideToMove
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -377,8 +384,8 @@ private fun StatusLine(session: GameSession, thinking: Boolean) {
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(headline(session, thinking), style = MaterialTheme.typography.titleMedium)
-            Text(detail(session), style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+            Text(headline(session, thinking, online), style = MaterialTheme.typography.titleMedium)
+            Text(detail(session, online.names()), style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
         }
         if (session.outcome == Outcome.Ongoing && state.threats().isNotEmpty()) {
             Text(
@@ -394,23 +401,39 @@ private fun StatusLine(session: GameSession, thinking: Boolean) {
     }
 }
 
-private fun headline(session: GameSession, thinking: Boolean): String {
+/** How the connection to an online game stands, when there's something to say. */
+@Composable
+private fun OnlineNote(online: OnlineStatus, session: GameSession) {
+    val (text, problem) = when {
+        online.problem != null -> online.problem to true
+        !online.connected -> "Connection lost. Reconnecting…" to true
+        !online.opponentPresent && session.outcome == Outcome.Ongoing ->
+            "${online.opponentName} has left the game for now. Their turns will arrive when they're back." to false
+        else -> return
+    }
+    Text(text, style = MaterialTheme.typography.bodySmall, color = if (problem) MaterialTheme.colorScheme.error else Palette.inkSoft)
+}
+
+private fun headline(session: GameSession, thinking: Boolean, online: OnlineStatus?): String {
     if (session.outcome != Outcome.Ongoing) return outcomeTitle(session.outcome)
     val side = session.state.sideToMove.displayName
     return when {
+        online?.problem != null -> "Game stopped"
+        online != null && thinking && !session.isRemoteTurn && online.sending -> "Sending your turn…"
+        session.isRemoteTurn -> "${online?.opponentName ?: "Your friend"}'s turn · $side"
         thinking && session.mode.puzzle != null -> "Checking your answer…"
         thinking && !session.isComputerTurn -> "Checking the position…"
         thinking -> "$side is thinking…"
-        session.mode.computerSide != null && session.mode.computerSide != session.state.sideToMove -> "Your turn · $side"
+        online != null || (session.mode.computerSide != null && session.mode.computerSide != session.state.sideToMove) -> "Your turn · $side"
         else -> "$side to move"
     }
 }
 
-private fun detail(session: GameSession): String {
+private fun detail(session: GameSession, nameOf: (Side) -> String): String {
     if (session.isExploring) {
-        return outcomeText(session.outcome) + " Try ${session.state.sideToMove.displayName}'s moves to see why."
+        return outcomeText(session.outcome, nameOf) + " Try ${nameOf(session.state.sideToMove)}'s moves to see why."
     }
-    if (session.outcome != Outcome.Ongoing) return outcomeText(session.outcome)
+    if (session.outcome != Outcome.Ongoing) return outcomeText(session.outcome, nameOf)
     val state = session.state
     if (session.undecided) {
         return "The search couldn't confirm a legal turn here. If you can't find one, choose ⋮ › No legal turn?"
@@ -434,9 +457,13 @@ private fun outcomeTitle(outcome: Outcome): String = when (outcome) {
     is Outcome.Resignation -> "Resignation"
 }
 
-private fun outcomeText(outcome: Outcome): String = when (outcome) {
+/** How the game ended, naming the players by [nameOf]. */
+private fun outcomeText(outcome: Outcome, nameOf: (Side) -> String): String = when (outcome) {
     Outcome.Ongoing -> ""
-    is Outcome.Checkmate -> "${outcome.winner.displayName} wins."
+    is Outcome.Checkmate -> "${nameOf(outcome.winner)} wins."
     Outcome.Stalemate -> "No legal turn and no king in danger: the game is drawn."
-    is Outcome.Resignation -> "${outcome.winner.opponent.displayName} resigned. ${outcome.winner.displayName} wins."
+    is Outcome.Resignation -> "${nameOf(outcome.winner.opponent)} resigned. ${nameOf(outcome.winner)} wins."
 }
+
+/** Online, the players by the names they gave; otherwise, by their sides. */
+private fun OnlineStatus?.names(): (Side) -> String = this?.let { it::nameOf } ?: { it.displayName }

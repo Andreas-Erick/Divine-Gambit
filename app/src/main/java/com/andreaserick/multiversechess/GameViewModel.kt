@@ -2,6 +2,7 @@ package com.andreaserick.multiversechess
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -11,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import com.andreaserick.multiversechess.engine.ComputerPlayer
 import com.andreaserick.multiversechess.engine.GameMode
 import com.andreaserick.multiversechess.engine.GameSession
+import com.andreaserick.multiversechess.engine.OnlineEvent
 import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Puzzle
@@ -18,9 +20,21 @@ import com.andreaserick.multiversechess.engine.Puzzles
 import com.andreaserick.multiversechess.engine.PuzzleCodec
 import com.andreaserick.multiversechess.engine.PuzzleGenerator
 import com.andreaserick.multiversechess.engine.SavedGame
+import com.andreaserick.multiversechess.engine.Side
+import com.andreaserick.multiversechess.engine.Variant
+import com.andreaserick.multiversechess.online.Connecting
+import com.andreaserick.multiversechess.online.Invitation
+import com.andreaserick.multiversechess.online.OnlineStatus
+import com.andreaserick.multiversechess.online.RelayClient
+import com.andreaserick.multiversechess.online.RelayConnection
+import com.andreaserick.multiversechess.online.RelayException
+import com.andreaserick.multiversechess.online.RelayMessage
+import com.andreaserick.multiversechess.online.Ticket
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -138,15 +152,37 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             return all.getOrNull(all.indexOfFirst { it.id == current.id } + 1)
         }
 
-    /** Leaves the game, back to the puzzle list if it was a puzzle; from the puzzle list, to the menu. */
+    /**
+     * Leaves the game, back to the puzzle list if it was a puzzle; from the puzzle list, to the
+     * menu. Stops creating or joining an online game.
+     */
     fun back() {
         stopJob()
+        if (connecting != null) {
+            connectJob?.cancel()
+            connecting = null
+            return
+        }
+        if (invitation != null) {
+            invitation = null
+            return
+        }
         if (session == null) {
             showingPuzzles = false
             generateJob?.cancel()
             generating = false
         }
-        session?.let { if (it.mode.puzzle == null && it.outcome == Outcome.Ongoing) resumable = it }
+        leaveGame()
+    }
+
+    /** Closes the game; an unfinished one stays on offer in the menu. */
+    private fun leaveGame() {
+        stopJob()
+        val current = session
+        if (current != null && current.mode.puzzle == null && current.mode.onlineSide == null && current.outcome == Outcome.Ongoing) {
+            resumable = current
+        }
+        leaveOnline()
         session = null
     }
 
@@ -154,13 +190,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Checking whether the opponent has a legal reply (or a puzzle answer is mate) can take a moment. */
     fun submit() {
-        val current = session ?: return
+        val current = session?.takeIf { outbox == null } ?: return
         runInBackground(current) { session, _ -> session.submit() }
     }
 
     /** Searches every turn; this can take a while, and Undo or leaving the game cancels it. */
     fun claimNoLegalTurn() {
-        val current = session ?: return
+        val current = session?.takeIf { outbox == null } ?: return
         runInBackground(current) { session, stop -> session.claimNoLegalTurn(stop) }
     }
 
@@ -179,7 +215,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private inline fun update(action: (GameSession) -> GameSession) {
-        session?.let { show(action(it)) }
+        if (outbox != null) return
+        session?.let { advance(it, action(it)) }
+    }
+
+    /**
+     * Shows [next], reached from [from]. Online, a submitted turn or an ended game goes to the
+     * relay instead, and shows once it comes back, so both players see the same game.
+     */
+    private fun advance(from: GameSession, next: GameSession) {
+        val event = when {
+            from.mode.onlineSide == null -> null
+            next.state.sideToMove != from.state.sideToMove ->
+                OnlineEvent.Turn(from.state.turnMoves.map { it.from to it.to }, next.outcome, next.undecided)
+            from.outcome == Outcome.Ongoing && next.outcome != Outcome.Ongoing -> OnlineEvent.End(next.outcome)
+            else -> null
+        }
+        if (event == null) show(next) else send(event)
     }
 
     private fun show(next: GameSession) {
@@ -192,9 +244,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Keeps [game] on disk while it's unfinished; a finished game (or a puzzle) isn't kept. */
+    /** Keeps [game] on disk while it's unfinished; a finished game, a puzzle or an online game isn't kept. */
     private fun save(game: GameSession) {
-        if (game.mode.puzzle != null) return
+        if (game.mode.puzzle != null || game.mode.onlineSide != null) return
         resumable = null
         viewModelScope.launch(saving) {
             runCatching {
@@ -223,7 +275,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             // Ignore the result if the player undid or left the game meanwhile.
             if (session === from) {
                 thinking = false
-                show(next)
+                advance(from, next)
             }
         }
     }
@@ -234,7 +286,265 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         thinking = false
     }
 
+    // Online games. Each is a list of events kept by the relay (see relay/); both players' apps
+    // play every event in the relay's order, their own turns included, once the relay echoes them.
+
+    private val relay = RelayClient(BuildConfig.RELAY_URL)
+
+    /** The seat in an unfinished online game. Kept apart from progress, so backups leave it out (see backup_rules.xml). */
+    private val onlinePrefs = application.getSharedPreferences("online", Context.MODE_PRIVATE)
+
+    /** Whether this build knows a relay to play online through. */
+    val canPlayOnline: Boolean get() = relay.isConfigured
+
+    /** The online game being played, or waited for in the lobby; null otherwise. */
+    var online by mutableStateOf<OnlineStatus?>(null)
+        private set
+
+    /** Creating or joining an online game, before it opens. */
+    var connecting by mutableStateOf<Connecting?>(null)
+        private set
+
+    /** An unfinished online game that can be rejoined from the menu. */
+    var resumableOnline by mutableStateOf(onlinePrefs.getString(KEY_ONLINE, null)?.let(Ticket::decode))
+        private set
+
+    private var connectJob: Job? = null
+    private var retry: (() -> Unit)? = null
+    private var onlineJob: Job? = null
+    private var connection: RelayConnection? = null
+
+    /** How many of the online game's events [session] has played. */
+    private var applied = 0
+
+    /** This player's event waiting for the relay's receipt: its index and text. */
+    private var outbox: Pair<Int, String>? = null
+
+    /** A game this player was invited to, waiting for them to give their name and join. */
+    var invitation by mutableStateOf<Invitation?>(null)
+        private set
+
+    /** The name this player gave last time, offered again. */
+    var playerName by mutableStateOf(prefs.getString(KEY_NAME, null).orEmpty())
+        private set
+
+    /** Opens a game online, with this player, called [name], on [side], and a link to invite a friend to it. */
+    fun inviteFriend(variant: Variant, timelineLimit: Int?, side: Side, name: String) {
+        rememberName(name)
+        openOnline("Creating the game…") { startOnline(relay.create(variant, timelineLimit, side, name)) }
+    }
+
+    /**
+     * Looks up the game [code], from an invitation link or typed in, to show who invites this
+     * player before they give their name ([acceptInvitation]). A game this player is already in
+     * just opens.
+     */
+    fun joinFriend(code: String) {
+        val wanted = Ticket.parseCode(code) ?: return
+        if (online?.ticket?.code == wanted) return
+        val saved = resumableOnline
+        if (saved?.code == wanted) {
+            connectJob?.cancel()
+            connecting = null
+            return startOnline(saved)
+        }
+        openOnline("Looking up game ${Ticket.displayCode(wanted)}…") {
+            val found = relay.invitation(wanted)
+            if (found.full) throw RelayException("Full", 409)
+            invitation = found
+        }
+    }
+
+    /** Joins the game of the [invitation] as [name]. */
+    fun acceptInvitation(name: String) {
+        val accepted = invitation ?: return
+        invitation = null
+        rememberName(name)
+        openOnline("Joining ${accepted.hostName}'s game…") { startOnline(relay.join(accepted.code, name)) }
+    }
+
+    private fun rememberName(name: String) {
+        playerName = name
+        prefs.edit { putString(KEY_NAME, name) }
+    }
+
+    fun continueOnline() {
+        resumableOnline?.let(::startOnline)
+    }
+
+    fun retryConnecting() {
+        retry?.invoke()
+    }
+
+    /** Runs [action], a request to the relay, showing [title] meanwhile, and what went wrong if it fails. */
+    private fun openOnline(title: String, action: suspend () -> Unit) {
+        connectJob?.cancel()
+        retry = { openOnline(title, action) }
+        connecting = Connecting(title)
+        connectJob = viewModelScope.launch {
+            try {
+                action()
+            } catch (e: IOException) {
+                Log.w(TAG, "Couldn't open the online game", e)
+                connecting = Connecting(title, describe(e))
+                return@launch
+            }
+            connecting = null
+        }
+    }
+
+    private fun describe(e: IOException): String = when ((e as? RelayException)?.status) {
+        404 -> "There's no game with this code. Check it, or ask for a new invitation: games are forgotten after a month."
+        409 -> "This game already has two players."
+        null -> "Couldn't reach the server. Check your internet connection."
+        else -> "The server refused: ${e.message}"
+    }
+
+    /** Enters the online game [ticket] has a seat in, and stays connected while it's open. */
+    private fun startOnline(ticket: Ticket) {
+        leaveGame()
+        showingPuzzles = false
+        invitation = null
+        resumableOnline = ticket
+        onlinePrefs.edit { putString(KEY_ONLINE, ticket.encode()) }
+        online = OnlineStatus(ticket, relay.inviteLink(ticket.code))
+        session = GameSession(ticket.mode)
+        applied = 0
+        outbox = null
+        onlineJob = viewModelScope.launch {
+            var wait = RECONNECT_MIN_MILLIS
+            while (true) {
+                try {
+                    relay.connect(ticket).collect { message ->
+                        wait = RECONNECT_MIN_MILLIS
+                        receive(message)
+                    }
+                } catch (e: RelayException) {
+                    if (e.isFinal) {
+                        stopOnline("This game no longer exists.")
+                        return@launch
+                    }
+                } catch (_: IOException) {
+                }
+                connection = null
+                online = online?.copy(connected = false)
+                delay(wait)
+                wait = (wait * 2).coerceAtMost(RECONNECT_MAX_MILLIS)
+            }
+        }
+    }
+
+    private suspend fun receive(message: RelayMessage) {
+        when (message) {
+            is RelayMessage.Hello -> {
+                connection = message.connection
+                online = online?.copy(connected = true, opponentJoined = message.opponentJoined, opponentPresent = message.opponentPresent)
+                learnNames(message.names)
+                for (index in applied until message.events.size) {
+                    val (sender, event) = message.events[index]
+                    if (!play(sender, event)) return
+                }
+                // A turn sent before the connection dropped: send it again, unless it got there.
+                outbox?.let { (index, event) -> if (index == applied) message.connection.send(index, event) else outbox = null }
+            }
+            is RelayMessage.Event -> when {
+                message.index == applied -> play(message.sender, message.event)
+                // Events were missed: connecting again brings them all.
+                message.index > applied -> connection?.close()
+            }
+            is RelayMessage.Joined -> {
+                online = online?.copy(opponentJoined = true)
+                online?.let { learnNames(mapOf(it.ticket.side.opponent to message.name)) }
+            }
+            is RelayMessage.Presence -> online = online?.copy(opponentPresent = message.opponentPresent)
+        }
+        online = online?.copy(sending = outbox != null)
+    }
+
+    /** Shows the players' [names], and keeps the friend's for the menu's Continue button. */
+    private fun learnNames(names: Map<Side, String>) {
+        val status = online ?: return
+        online = status.copy(names = status.names + names)
+        val opponent = names[status.ticket.side.opponent] ?: return
+        val saved = resumableOnline?.takeIf { it.code == status.ticket.code && it.opponentName != opponent } ?: return
+        val updated = saved.copy(opponentName = opponent)
+        resumableOnline = updated
+        onlinePrefs.edit { putString(KEY_ONLINE, updated.encode()) }
+    }
+
+    /**
+     * Plays the online game's next event, sent by [sender]'s player; false if it breaks the rules,
+     * which stops the game. A checkmate or stalemate the friend's app claims is searched for here
+     * before it counts.
+     */
+    private suspend fun play(sender: Side, event: String): Boolean {
+        val current = session ?: return false
+        val next = OnlineEvent.decode(event)?.let { current.applyEvent(it, sender) }
+        if (next == null) {
+            stopOnline("Your friend's app sent a move that isn't allowed, so the game was stopped. Make sure you both have the latest version.")
+            return false
+        }
+        val claimed = next.outcome is Outcome.Checkmate || next.outcome == Outcome.Stalemate
+        if (claimed && current.outcome == Outcome.Ongoing && sender != current.mode.onlineSide) {
+            thinking = true
+            val holds = withContext(Dispatchers.Default) {
+                val job = coroutineContext.job
+                next.confirmsOutcome { !job.isActive }
+            }
+            thinking = false
+            if (!holds) {
+                stopOnline("Your friend's app said the game ended in ${if (next.outcome == Outcome.Stalemate) "stalemate" else "checkmate"}, but it didn't, so the game was stopped.")
+                return false
+            }
+        }
+        if (outbox?.first == applied) outbox = null
+        applied++
+        // A search still running (No legal turn?) is about a position that's gone.
+        stopJob()
+        session = next
+        if (next.outcome != Outcome.Ongoing) forgetOnline()
+        return true
+    }
+
+    /** Offers [event] to the relay; it's played once the relay echoes it back. */
+    private fun send(event: OnlineEvent) {
+        val text = OnlineEvent.encode(event)
+        outbox = applied to text
+        connection?.send(applied, text)
+        online = online?.copy(sending = true)
+    }
+
+    /** The online game can't go on: says why, and stops connecting. */
+    private fun stopOnline(problem: String) {
+        onlineJob?.cancel()
+        connection?.close()
+        connection = null
+        outbox = null
+        online = online?.copy(connected = false, sending = false, problem = problem)
+        forgetOnline()
+    }
+
+    private fun forgetOnline() {
+        resumableOnline = null
+        onlinePrefs.edit { remove(KEY_ONLINE) }
+    }
+
+    /** Disconnects from the online game, if any; an unfinished one can be rejoined from the menu. */
+    private fun leaveOnline() {
+        onlineJob?.cancel()
+        onlineJob = null
+        connection?.close()
+        connection = null
+        outbox = null
+        online = null
+    }
+
     private companion object {
+        const val TAG = "MultiverseChess"
         const val KEY_SOLVED = "solved_puzzles"
+        const val KEY_ONLINE = "game"
+        const val KEY_NAME = "player_name"
+        const val RECONNECT_MIN_MILLIS = 1_000L
+        const val RECONNECT_MAX_MILLIS = 15_000L
     }
 }

@@ -1,0 +1,35 @@
+name = "multiverse-chess"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+[vars]
+# The app that /join/ links open, and the SHA-256 fingerprints of the certificates it's signed
+# with (release, then debug), for Android App Links.
+APP_PACKAGE = "com.andreaserick.multiversechess"
+APP_FINGERPRINTS = "6D:28:B9:BA:80:21:9C:FA:36:79:FE:0C:69:D7:5B:2C:88:7C:F7:DA:47:DA:9A:05:6C:EA:2C:1F:0C:5B:D8:E5,E4:7D:91:0B:92:D9:A7:1D:88:56:F0:D6:83:07:F4:1C:AB:00:BD:72:2C:AC:0D:D6:8F:5E:B1:E5:70:72:5B:69"
+DOWNLOAD_URL = "https://github.com/Andreas-Erick/5D-Chess/releases/latest"
+
+# Per-IP limits on the API (see allowed() in src/index.js), so nobody can use up the account's
+# daily allowance or try game codes in bulk. A period is 10 or 60 seconds.
+[[ratelimits]]
+name = "CREATE_LIMIT"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "JOIN_LIMIT"
+namespace_id = "1002"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "CONNECT_LIMIT"
+namespace_id = "1003"
+simple = { limit = 30, period = 60 }

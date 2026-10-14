@@ -3,6 +3,8 @@ package com.andreaserick.multiversechess.engine
 /**
  * [computerSide] is the side the computer plays, or null for two humans on one device.
  * With a [puzzle], the game starts from the puzzle's position and ends once it is solved.
+ * In an online game, [onlineSide] is the side played on this device; the game advances by
+ * [OnlineEvent]s that both devices replay (see [GameSession.applyEvent]).
  */
 data class GameMode(
     val computerSide: Side? = null,
@@ -10,6 +12,7 @@ data class GameMode(
     val puzzle: Puzzle? = null,
     /** How many timelines each player may create, or null for no limit (see [GameState.timelineLimit]). */
     val timelineLimit: Int? = null,
+    val onlineSide: Side? = null,
 )
 
 /**
@@ -37,6 +40,9 @@ data class GameSession(
 ) {
     val isComputerTurn: Boolean get() = outcome == Outcome.Ongoing && mode.computerSide == state.sideToMove
 
+    /** In an online game, whether it's the other device's turn. */
+    val isRemoteTurn: Boolean get() = outcome == Outcome.Ongoing && mode.onlineSide != null && mode.onlineSide != state.sideToMove
+
     /**
      * After checkmate or stalemate, moves can still be tried on the losing side's behalf to see
      * why every turn fails; they just can't be submitted.
@@ -47,7 +53,7 @@ data class GameSession(
     val targets: List<Move> get() = selected?.let { state.legalMovesFrom(it) } ?: emptyList()
 
     fun tap(pos: Pos): GameSession {
-        if ((outcome != Outcome.Ongoing && !isExploring) || isComputerTurn) return this
+        if ((outcome != Outcome.Ongoing && !isExploring) || isComputerTurn || isRemoteTurn) return this
         selected?.let { sel ->
             state.legalMovesFrom(sel).firstOrNull { it.to == pos }?.let { return play(it) }
         }
@@ -189,7 +195,7 @@ data class GameSession(
      * otherwise the message shows how one legal turn begins.
      */
     fun claimNoLegalTurn(stop: () -> Boolean = { false }): GameSession {
-        if (outcome != Outcome.Ongoing || isComputerTurn) return this
+        if (outcome != Outcome.Ongoing || isComputerTurn || isRemoteTurn) return this
         val start = turnStart()
         return when (val result = TurnSearch(Int.MAX_VALUE, stop = stop).findLegalTurn(start)) {
             is TurnSearchResult.Found -> {
@@ -202,10 +208,82 @@ data class GameSession(
     }
 
     /** The position at the start of the current turn, before any of its moves. */
-    private fun turnStart(): GameState {
+    private fun turnStart(): GameState = turnStartSession().state
+
+    private fun turnStartSession(): GameSession {
         var s = this
         while (s.state.turnMoves.isNotEmpty()) s = s.previous ?: break
-        return s.state
+        return s
+    }
+
+    /**
+     * Plays an event of an online game, sent by the player of [sender], from the start of the
+     * current turn: moves tried on this device but not submitted are set aside. Null if the event
+     * can't happen here, or isn't [sender]'s to send:
+     * - a turn by the side not to move, a move that isn't legal, or a turn that's incomplete or
+     *   leaves the mover's king exposed;
+     * - a turn claiming an ending that isn't the mover's win or a stalemate;
+     * - a resignation on someone else's behalf, or a claim of having no legal turn by the side
+     *   not to move.
+     *
+     * A claimed checkmate or stalemate isn't searched for here; [confirmsOutcome] checks it.
+     * Undo can't go back past an event: the other device has already seen it.
+     */
+    fun applyEvent(event: OnlineEvent, sender: Side): GameSession? {
+        val start = turnStartSession()
+        val toMove = start.state.sideToMove
+        return when (event) {
+            is OnlineEvent.End -> {
+                if (start.outcome != Outcome.Ongoing) return start.copy(selected = null, message = null, previous = null)
+                val allowed = when (val ending = event.outcome) {
+                    is Outcome.Resignation -> ending.winner == sender.opponent
+                    is Outcome.Checkmate -> sender == toMove && ending.winner == sender.opponent
+                    Outcome.Stalemate -> sender == toMove
+                    Outcome.Ongoing -> false
+                }
+                if (!allowed) return null
+                start.copy(outcome = event.outcome, undecided = false, selected = null, message = null, previous = null)
+            }
+            is OnlineEvent.Turn -> {
+                if (start.outcome != Outcome.Ongoing || event.moves.isEmpty() || sender != toMove) return null
+                val claimable = event.outcome == Outcome.Ongoing || event.outcome == Outcome.Stalemate || event.outcome == Outcome.Checkmate(sender)
+                if (!claimable) return null
+                var s = start.state
+                val played = ArrayList<Move>()
+                val lines = ArrayList<String>()
+                for ((from, to) in event.moves) {
+                    val piece = s.pieceAt(from) ?: return null
+                    if (piece.side != s.sideToMove || !s.isPlayable(from.l, from.t)) return null
+                    val move = s.legalMovesFrom(from).firstOrNull { it.to == to } ?: return null
+                    lines += logLine(s, move)
+                    played += move
+                    s = s.apply(move)
+                }
+                if (!s.canSubmit || s.isInCheck(s.sideToMove)) return null
+                start.copy(
+                    state = s.submit(),
+                    selected = null,
+                    message = null,
+                    outcome = event.outcome,
+                    undecided = event.undecided,
+                    log = start.log + lines,
+                    lastTurn = played,
+                    previous = null,
+                )
+            }
+        }
+    }
+
+    /**
+     * Whether this game's ending holds up, for an ending another device claimed: a checkmate or
+     * stalemate needs the side to move to have no legal turn, and a king under attack exactly when
+     * it's checkmate. A search that runs out of time (as [OUTCOME_MILLIS] allows) gives the claim
+     * the benefit of the doubt, as the claimant may have searched for longer.
+     */
+    fun confirmsOutcome(stop: () -> Boolean = { false }): Boolean = when (outcome) {
+        is Outcome.Checkmate, Outcome.Stalemate ->
+            outcome == endWithoutTurn(state) && outcomeSearch(stop).findLegalTurn(state) !is TurnSearchResult.Found
+        else -> true
     }
 
     /** Steps back one action; against the computer, also skips back past the computer's turn. */
@@ -217,7 +295,7 @@ data class GameSession(
 
     fun resign(): GameSession {
         if (outcome != Outcome.Ongoing || mode.puzzle != null) return this
-        val loser = if (mode.computerSide != null) mode.computerSide.opponent else state.sideToMove
+        val loser = mode.onlineSide ?: mode.computerSide?.opponent ?: state.sideToMove
         return copy(outcome = Outcome.Resignation(loser.opponent), selected = null, previous = this)
     }
 
@@ -232,9 +310,9 @@ data class GameSession(
     }
 
     /** The search for a legal reply after each turn: up to [OUTCOME_BUDGET] positions or [OUTCOME_MILLIS]. */
-    private fun outcomeSearch(): TurnSearch {
+    private fun outcomeSearch(stop: () -> Boolean = { false }): TurnSearch {
         val deadline = System.nanoTime() + OUTCOME_MILLIS * 1_000_000
-        return TurnSearch(OUTCOME_BUDGET, stop = { System.nanoTime() > deadline })
+        return TurnSearch(OUTCOME_BUDGET, stop = { stop() || System.nanoTime() > deadline })
     }
 
     /** How the game ends when the side to move in [at] has no legal turn. */
