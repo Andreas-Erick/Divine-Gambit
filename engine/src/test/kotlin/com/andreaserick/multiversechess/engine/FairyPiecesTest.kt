@@ -139,7 +139,9 @@ class FairyPiecesTest {
     fun `variants set up the expected pieces`() {
         for (variant in Variant.entries) {
             val board = variant.board()
-            assertEquals(PieceType.KING, board[Square.parse("e1")]?.type, variant.name)
+            for (side in Side.entries) {
+                assertEquals(1, board.pieces().count { it.second.side == side && it.second.type.isRoyal }, variant.name)
+            }
             assertEquals(Side.BLACK, board[Square.parse("e8")]?.side, variant.name)
             assertEquals(32, board.pieces().size, variant.name)
             assertTrue(GameState.initial(variant).allMoves().isNotEmpty(), variant.name)
@@ -150,6 +152,41 @@ class FairyPiecesTest {
             Variant.MENAGERIE.fairyPieces,
         )
         assertEquals(emptyList(), Variant.STANDARD.fairyPieces)
+        assertEquals(listOf(PieceType.ROYAL_QUEEN, PieceType.COMMON_KING), Variant.ROYAL_QUEENS.fairyPieces)
+    }
+
+    @Test
+    fun `a royal queen must be protected but a common king may be attacked`() {
+        // Black to move, with rooks bearing down on White's royal queen (a1) and common king (e1).
+        val board = Board.parse("r...r..k", "........", "........", "........", "........", "........", "........", "Y...C...")
+        val state = GameState(mapOf(0 to Timeline(0, 1, listOf(board))), Side.BLACK)
+        assertEquals(listOf(Pos.of(0, 1, "a1")), state.kingCaptures(Side.BLACK).map { it.to })
+    }
+
+    @Test
+    fun `royal queen moves like a queen and common king like a king`() {
+        val board = Board.parse(*kingsOnly).with(
+            listOf(Square.parse("d4") to Piece(PieceType.ROYAL_QUEEN, Side.WHITE), Square.parse("a1") to Piece(PieceType.COMMON_KING, Side.WHITE)),
+        )
+        val state = history(board, 3)
+        val queen = state.destinations(Pos.of(0, 2, "d4"))
+        assertTrue(Pos.of(0, 2, "h8") in queen)
+        assertTrue(Pos.of(0, 0, "c5") in queen) // a time/file/rank triagonal
+        assertEquals(
+            setOf(Pos.of(0, 2, "a2"), Pos.of(0, 2, "b1"), Pos.of(0, 2, "b2"), Pos.of(0, 0, "a2"), Pos.of(0, 0, "b1"), Pos.of(0, 0, "b2")),
+            state.destinations(Pos.of(0, 2, "a1")),
+        )
+    }
+
+    @Test
+    fun `computer plays royal queens without errors`() {
+        var session = GameSession(GameMode(computerSide = Side.BLACK, variant = Variant.ROYAL_QUEENS))
+        val player = ComputerPlayer(Random(5))
+        repeat(10) {
+            if (session.outcome != Outcome.Ongoing) return
+            session = session.applyComputerTurn(assertNotNull(player.chooseTurn(session.state)))
+        }
+        assertTrue(session.log.isNotEmpty())
     }
 
     @Test

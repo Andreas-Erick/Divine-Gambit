@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.andreaserick.multiversechess.engine.BOARD_SIZE
 import com.andreaserick.multiversechess.engine.Board
+import com.andreaserick.multiversechess.engine.BoardId
 import com.andreaserick.multiversechess.engine.GameSession
 import com.andreaserick.multiversechess.engine.GameState
 import com.andreaserick.multiversechess.engine.Move
@@ -234,6 +235,34 @@ internal fun GameState.focusArea(): Rect {
     return ls.map { Layout.boardRect(it, timelines.getValue(it).end) }.reduce(::union)
 }
 
+/**
+ * Views that keep one slice of the multiverse around a board and hide the rest, so a piece's moves
+ * can be seen without the opponent's boards in the way.
+ */
+enum class SliceView {
+    /** The board's timeline through time, with only the boards of the same side to move. */
+    HISTORY,
+
+    /** The board's moment across every timeline. */
+    PARALLEL;
+
+    fun shows(anchor: BoardId, l: Int, t: Int): Boolean = when (this) {
+        HISTORY -> l == anchor.l && Math.floorMod(t - anchor.t, 2) == 0
+        PARALLEL -> t == anchor.t
+    }
+}
+
+/** The board a slice view is built around: the selected piece's, or the first one to play. */
+internal fun GameSession.sliceAnchor(): BoardId =
+    selected?.boardId ?: state.focusBoard().let { (l, t) -> BoardId(l, t) }
+
+/** The boards [view] keeps around [anchor], in world units. */
+internal fun GameState.sliceArea(view: SliceView, anchor: BoardId): Rect =
+    timelines.values.flatMap { timeline -> (timeline.start..timeline.end).map { timeline.index to it } }
+        .filter { (l, t) -> view.shows(anchor, l, t) }
+        .map { (l, t) -> Layout.boardRect(l, t) }
+        .reduce(::union)
+
 /** Every board of [l], from its first to its latest. */
 internal fun GameState.timelineArea(l: Int): Rect {
     val timeline = timelines.getValue(l)
@@ -250,12 +279,14 @@ fun MultiverseView(
     camera: CameraState,
     onTap: (Pos) -> Unit,
     modifier: Modifier = Modifier,
+    slice: SliceView? = null,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val currentSession by rememberUpdatedState(session)
     val currentOnTap by rememberUpdatedState(onTap)
+    val currentSlice by rememberUpdatedState(slice)
     val targets = remember(session) { session.targets }
     val threats = remember(session) { session.state.threats() }
     val glyphs = remember(textMeasurer, density) { measurePieceGlyphs(textMeasurer, density) }
@@ -277,6 +308,9 @@ fun MultiverseView(
                     }
                     val world = camera.toWorld(tap)
                     val pos = Layout.hitTest(world)
+                    // Boards hidden by a slice view can't be played on.
+                    val hidden = pos != null && currentSlice?.shows(currentSession.sliceAnchor(), pos.l, pos.t) == false
+                    if (hidden) return@detectTapGestures
                     if (pos != null && state.boardAt(pos.l, pos.t) != null) {
                         // Squares too small to aim at: zoom in on the board instead of picking one.
                         if (Layout.SQ * camera.scale < MIN_TAPPABLE_SQUARE.toPx()) {
@@ -298,7 +332,7 @@ fun MultiverseView(
             translate(camera.offset.x, camera.offset.y)
             scale(camera.scale, camera.scale, pivot = Offset.Zero)
         }) {
-            drawMultiverse(session, targets, threats, glyphs, labels, textMeasurer, visible, detailed = Layout.SQ * camera.scale >= 10f)
+            drawMultiverse(session, targets, threats, glyphs, labels, textMeasurer, visible, detailed = Layout.SQ * camera.scale >= 10f, slice)
         }
         drawTimelineRail(session.state, threats.mapTo(HashSet()) { it.from.l }, camera, rail, textMeasurer, labels.rail)
     }
@@ -311,7 +345,7 @@ private val MIN_TAPPABLE_SQUARE = 14.dp
 internal val COMFORTABLE_SQUARE = 20.dp
 
 /** When framing a long timeline, boards stay at least this fraction of the view's width. */
-private const val TIMELINE_MIN_BOARD = 0.24f
+internal const val TIMELINE_MIN_BOARD = 0.24f
 
 /**
  * Pinch to zoom and drag to pan, like detectTransformGestures, plus a fling when a one-finger
@@ -477,8 +511,11 @@ private fun DrawScope.drawMultiverse(
     textMeasurer: TextMeasurer,
     visible: Rect,
     detailed: Boolean,
+    slice: SliceView?,
 ) {
     val state = session.state
+    val anchor = session.sliceAnchor()
+    fun shown(l: Int, t: Int) = slice?.shows(anchor, l, t) ?: true
     val side = state.sideToMove
     val mandatory = state.mandatoryTimelines.toSet()
     val ongoing = session.outcome == Outcome.Ongoing
@@ -505,10 +542,13 @@ private fun DrawScope.drawMultiverse(
         drawLine(Palette.presentEdge, Offset(x, visible.top), Offset(x, visible.bottom), strokeWidth = Layout.SQ * 0.12f)
     }
 
-    // Timeline ribbons: shadows first, then the ribbons, so boards sit on top of both.
+    // Timeline ribbons: shadows first, then the ribbons, so boards sit on top of both. A slice view
+    // keeps its own timeline's ribbon and fades the others.
     for (pass in 0..1) {
         for (timeline in state.timelines.values) {
-            val color = if (pass == 0) Palette.slab else if (state.isActive(timeline.index)) Palette.ribbon else Palette.ribbonInactive
+            val faded = slice != null && !(slice == SliceView.HISTORY && timeline.index == anchor.l)
+            val color = (if (pass == 0) Palette.slab else if (state.isActive(timeline.index)) Palette.ribbon else Palette.ribbonInactive)
+                .let { if (faded) it.copy(alpha = 0.15f) else it }
             val shift = if (pass == 0) Layout.SLAB else Offset.Zero
             drawTimelineRibbon(timeline.index, timeline.start, timeline.end, timeline.parent, color, shift, arrow = ongoing)
         }
@@ -541,7 +581,7 @@ private fun DrawScope.drawMultiverse(
         ))
         for (t in timeline.start..timeline.end) {
             val rect = Layout.boardRect(timeline.index, t)
-            if (!rect.inflate(Layout.SQ * 2).overlaps(visible)) continue
+            if (!rect.inflate(Layout.SQ * 2).overlaps(visible) || !shown(timeline.index, t)) continue
             val board = timeline.boardAt(t)!!
             val playable = canMove && t == timeline.end && Side.toMoveAt(t) == side
             drawBoardCard(rect, Side.toMoveAt(t), playable, must = timeline.index in mandatory)
@@ -596,6 +636,7 @@ private fun DrawScope.drawMultiverse(
 
     // Arrows for moves between boards, and for threats against the side to move's kings.
     for (move in turnMoves) {
+        if (!shown(move.from.l, move.from.t) || !shown(move.to.l, move.to.t)) continue
         if (!move.isSpatial) drawCurvedArrow(Layout.squareCenter(move.from), Layout.squareCenter(move.to), Palette.travelArrow)
     }
     for (threat in threats) {

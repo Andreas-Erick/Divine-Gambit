@@ -58,7 +58,8 @@ internal fun GameState.generateMoves(from: Pos, capturesOnly: Boolean): List<Mov
             addRays(from, piece.side, Directions.queen, slide = false, capturesOnly, out)
             if (!capturesOnly) addCastling(from, board, piece, out)
         }
-        PieceType.QUEEN -> addRays(from, piece.side, Directions.queen, slide = true, capturesOnly, out)
+        PieceType.COMMON_KING -> addRays(from, piece.side, Directions.queen, slide = false, capturesOnly, out)
+        PieceType.QUEEN, PieceType.ROYAL_QUEEN -> addRays(from, piece.side, Directions.queen, slide = true, capturesOnly, out)
         PieceType.ROOK -> addRays(from, piece.side, Directions.rook, slide = true, capturesOnly, out)
         PieceType.BISHOP -> addRays(from, piece.side, Directions.bishop, slide = true, capturesOnly, out)
         PieceType.KNIGHT -> addRays(from, piece.side, Directions.knight, slide = false, capturesOnly, out)

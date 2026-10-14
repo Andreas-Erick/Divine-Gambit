@@ -36,10 +36,10 @@ class Board private constructor(
             val attacks = when (piece.type) {
                 PieceType.PAWN, PieceType.BRAWN -> dy == by.rankForward && abs(dx) == 1
                 PieceType.KNIGHT -> (abs(dx) == 1 && abs(dy) == 2) || (abs(dx) == 2 && abs(dy) == 1)
-                PieceType.KING -> abs(dx) <= 1 && abs(dy) <= 1
+                PieceType.KING, PieceType.COMMON_KING -> abs(dx) <= 1 && abs(dy) <= 1
                 PieceType.ROOK -> (dx == 0 || dy == 0) && pathClear(from, dx, dy)
                 PieceType.BISHOP -> abs(dx) == abs(dy) && pathClear(from, dx, dy)
-                PieceType.QUEEN, PieceType.PRINCESS ->
+                PieceType.QUEEN, PieceType.PRINCESS, PieceType.ROYAL_QUEEN ->
                     (dx == 0 || dy == 0 || abs(dx) == abs(dy)) && pathClear(from, dx, dy)
                 // They always change time or timeline, so they never attack their own board.
                 PieceType.UNICORN, PieceType.DRAGON -> false
