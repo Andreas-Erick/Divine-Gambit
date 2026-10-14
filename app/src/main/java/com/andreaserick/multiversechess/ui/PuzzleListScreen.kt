@@ -30,6 +30,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +52,11 @@ fun PuzzleListScreen(
     canGenerate: Boolean,
     generating: Boolean,
     generateFailed: Boolean,
+    aiName: String?,
+    designing: String?,
+    designFailed: String?,
+    onDesign: (String?) -> Unit,
+    onAiSettings: () -> Unit,
     onGenerate: () -> Unit,
     onOpen: (Puzzle) -> Unit,
     onBack: () -> Unit,
@@ -95,6 +105,7 @@ fun PuzzleListScreen(
                     onGenerate = onGenerate,
                 )
             }
+            item { AiPuzzleCard(aiName, designing, designFailed, onDesign, onAiSettings) }
             item { Spacer(Modifier.navigationBarsPadding()) }
         }
     }
@@ -124,6 +135,51 @@ private fun GenerateCard(builtInLeft: Int, canGenerate: Boolean, generating: Boo
                     Text("Generate a puzzle")
                 }
             }
+        }
+    }
+}
+
+/** Has the AI design a puzzle, optionally on a theme; or offers to set one up. */
+@Composable
+private fun AiPuzzleCard(aiName: String?, designing: String?, failed: String?, onDesign: (String?) -> Unit, onAiSettings: () -> Unit) {
+    var theme by rememberSaveable { mutableStateOf("") }
+    SlabCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Puzzles by AI", style = MaterialTheme.typography.titleMedium)
+            if (aiName == null) {
+                Text(
+                    "Set up an AI opponent, and it can design puzzles for you. The engine checks each one, so every puzzle really is mate in one turn.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.inkSoft,
+                )
+                SecondaryPill(onClick = onAiSettings, modifier = Modifier.fillMaxWidth()) { Text("Set up an AI opponent") }
+                return@Column
+            }
+            Text(
+                failed ?: "$aiName composes a puzzle, and the engine checks it really is mate in one turn, telling $aiName " +
+                    "what to fix. This can take a minute.",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (failed != null) MaterialTheme.colorScheme.error else Palette.inkSoft,
+            )
+            OutlinedTextField(
+                value = theme,
+                onValueChange = { if (it.length <= 80) theme = it },
+                label = { Text("Theme (optional)") },
+                placeholder = { Text("e.g. a knight from another timeline") },
+                singleLine = true,
+                enabled = designing == null,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            PrimaryPill(onClick = { onDesign(theme.ifBlank { null }) }, enabled = designing == null, modifier = Modifier.fillMaxWidth()) {
+                if (designing != null) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Palette.onAccent)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Designing…")
+                } else {
+                    Text("Ask $aiName for a puzzle", maxLines = 1)
+                }
+            }
+            designing?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft) }
         }
     }
 }

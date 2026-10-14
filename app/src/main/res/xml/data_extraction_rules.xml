@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Android 12 and later: back up everything except the seat in an online game, whose token works
-     like a password for it. -->
+     like a password for it; the AI settings, whose API keys only this phone can decrypt; and
+     downloaded AI models, which are large and can be downloaded again. -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="online.xml" />
+        <exclude domain="sharedpref" path="ai.xml" />
+        <exclude domain="file" path="models/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="online.xml" />
+        <exclude domain="sharedpref" path="ai.xml" />
+        <exclude domain="file" path="models/" />
     </device-transfer>
 </data-extraction-rules>
