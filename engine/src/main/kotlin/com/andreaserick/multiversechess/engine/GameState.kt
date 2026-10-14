@@ -93,12 +93,6 @@ class GameState(
         }
     }
 
-    /** Moves that would play the present board of timeline [l]: moves from it, or jumps onto it. */
-    fun movesAdvancing(l: Int): List<Move> {
-        val end = timelines.getValue(l).end
-        return allMoves().filter { it.from.l == l || (it.to.l == l && it.to.t == end) }
-    }
-
     fun apply(move: Move): GameState {
         val source = timelines.getValue(move.from.l)
         require(source.end == move.from.t && Side.toMoveAt(move.from.t) == sideToMove) { "Board is not playable: $move" }

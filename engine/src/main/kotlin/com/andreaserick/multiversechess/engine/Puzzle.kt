@@ -72,21 +72,10 @@ class PuzzleSetup {
 object PuzzleSolver {
     fun mates(start: GameState, maxOptionalMoves: Int = 1, budget: Int = Puzzle.VERIFY_BUDGET): List<List<Move>> {
         val found = ArrayList<List<Move>>()
-        val seen = HashSet<Set<Move>>()
-        fun search(state: GameState, optionalLeft: Int) {
-            val mandatory = state.mandatoryTimelines
-            if (mandatory.isEmpty()) {
-                if (state.turnMoves.toSet() !in seen) {
-                    seen += state.turnMoves.toSet()
-                    if (Puzzle.isCheckmatingTurn(state, budget)) found += state.turnMoves
-                }
-                if (optionalLeft == 0) return
-                for (move in state.allMoves()) search(state.apply(move), optionalLeft - 1)
-                return
-            }
-            for (move in state.movesAdvancing(mandatory.first())) search(state.apply(move), optionalLeft)
+        TurnWalker(Int.MAX_VALUE, maxOptionalMoves, extendLegalTurns = true).walk(start) { state ->
+            if (Puzzle.isCheckmatingTurn(state, budget)) found += state.turnMoves
+            false
         }
-        search(start, maxOptionalMoves)
         return found
     }
 }
