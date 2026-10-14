@@ -98,14 +98,14 @@ object SavedGame {
         return s.state
     }
 
-    private fun encode(outcome: Outcome): String = when (outcome) {
+    internal fun encode(outcome: Outcome): String = when (outcome) {
         Outcome.Ongoing -> "ongoing"
         Outcome.Stalemate -> "stalemate"
         is Outcome.Checkmate -> "checkmate:${outcome.winner.name}"
         is Outcome.Resignation -> "resignation:${outcome.winner.name}"
     }
 
-    private fun decodeOutcome(text: String): Outcome = when {
+    internal fun decodeOutcome(text: String): Outcome = when {
         text == "ongoing" -> Outcome.Ongoing
         text == "stalemate" -> Outcome.Stalemate
         text.startsWith("checkmate:") -> Outcome.Checkmate(Side.valueOf(text.substringAfter(':')))
@@ -113,9 +113,9 @@ object SavedGame {
         else -> error("Unknown outcome $text")
     }
 
-    private fun encode(pos: Pos) = "${pos.l},${pos.t},${pos.x},${pos.y}"
+    internal fun encode(pos: Pos) = "${pos.l},${pos.t},${pos.x},${pos.y}"
 
-    private fun decodePos(text: String): Pos = text.split(',').map { it.toInt() }.let { (l, t, x, y) -> Pos(l, t, x, y) }
+    internal fun decodePos(text: String): Pos = text.split(',').map { it.toInt() }.let { (l, t, x, y) -> Pos(l, t, x, y) }
 
     /**
      * 64 squares from a1 along the ranks: `.` for empty, or the piece's letter (upper case White)

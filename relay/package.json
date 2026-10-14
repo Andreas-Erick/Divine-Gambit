@@ -1,0 +1,11 @@
+{
+  "name": "multiverse-chess-relay",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --ip 0.0.0.0",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.0"
+  }
+}

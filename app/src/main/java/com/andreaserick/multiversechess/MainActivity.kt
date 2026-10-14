@@ -1,11 +1,13 @@
 package com.andreaserick.multiversechess
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -14,33 +16,54 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.andreaserick.multiversechess.engine.Puzzles
+import com.andreaserick.multiversechess.ui.ConnectingScreen
 import com.andreaserick.multiversechess.ui.GameScreen
+import com.andreaserick.multiversechess.ui.InvitationScreen
+import com.andreaserick.multiversechess.ui.LobbyScreen
 import com.andreaserick.multiversechess.ui.MenuScreen
 import com.andreaserick.multiversechess.ui.MultiverseChessTheme
 import com.andreaserick.multiversechess.ui.Palette
 import com.andreaserick.multiversechess.ui.PuzzleListScreen
 
 class MainActivity : ComponentActivity() {
+    private val viewModel: GameViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) openInvitation(intent)
         // The app is always light, so system bar icons are always dark.
         val bars = SystemBarStyle.light(Palette.parchment.copy(alpha = 0f).toArgb(), Palette.ink.copy(alpha = 0.3f).toArgb())
         enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
         setContent {
             MultiverseChessTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    MultiverseChessApp()
+                    MultiverseChessApp(viewModel = viewModel)
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openInvitation(intent)
+    }
+
+    /** An invitation link to an online game (https://<relay>/join/<code>) joins it. */
+    private fun openInvitation(intent: Intent) {
+        if (intent.action != Intent.ACTION_VIEW) return
+        val segments = intent.data?.pathSegments ?: return
+        if (segments.size == 2 && segments[0] == "join") viewModel.joinFriend(segments[1])
     }
 }
 
 @Composable
 fun MultiverseChessApp(modifier: Modifier = Modifier, viewModel: GameViewModel = viewModel()) {
     val session = viewModel.session
+    val online = viewModel.online
     val screen = when {
+        viewModel.connecting != null -> Screen.CONNECTING
+        viewModel.invitation != null -> Screen.INVITATION
+        online != null && !online.opponentJoined && online.problem == null -> Screen.LOBBY
         session != null -> Screen.GAME
         viewModel.showingPuzzles -> Screen.PUZZLES
         else -> Screen.MENU
@@ -50,7 +73,7 @@ fun MultiverseChessApp(modifier: Modifier = Modifier, viewModel: GameViewModel =
     }
 }
 
-private enum class Screen { MENU, PUZZLES, GAME }
+private enum class Screen { MENU, PUZZLES, GAME, LOBBY, CONNECTING, INVITATION }
 
 @Composable
 private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier) {
@@ -63,6 +86,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
             GameScreen(
                 session = session,
                 thinking = viewModel.thinking,
+                online = viewModel.online,
                 nextPuzzle = viewModel.nextPuzzle,
                 onTap = viewModel::tap,
                 onSubmit = viewModel::submit,
@@ -96,7 +120,28 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
             onContinue = viewModel::continueGame,
             onPuzzles = viewModel::openPuzzles,
             puzzleProgress = viewModel.allPuzzles.let { all -> "${all.count { it.id in viewModel.solvedPuzzles }} / ${all.size}" },
+            canPlayOnline = viewModel.canPlayOnline,
+            resumableOnline = viewModel.resumableOnline,
+            onContinueOnline = viewModel::continueOnline,
+            playerName = viewModel.playerName,
+            onInvite = viewModel::inviteFriend,
+            onJoin = viewModel::joinFriend,
             modifier = modifier,
         )
+        Screen.LOBBY -> {
+            val online = viewModel.online ?: return
+            BackHandler { viewModel.back() }
+            LobbyScreen(online, onBack = viewModel::back, modifier = modifier)
+        }
+        Screen.INVITATION -> {
+            val invitation = viewModel.invitation ?: return
+            BackHandler { viewModel.back() }
+            InvitationScreen(invitation, viewModel.playerName, onJoin = viewModel::acceptInvitation, onBack = viewModel::back, modifier = modifier)
+        }
+        Screen.CONNECTING -> {
+            val connecting = viewModel.connecting ?: return
+            BackHandler { viewModel.back() }
+            ConnectingScreen(connecting, onRetry = viewModel::retryConnecting, onBack = viewModel::back, modifier = modifier)
+        }
     }
 }

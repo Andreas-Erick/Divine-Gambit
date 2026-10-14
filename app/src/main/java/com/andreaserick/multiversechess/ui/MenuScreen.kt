@@ -36,6 +36,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,6 +54,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.GameMode
@@ -60,6 +63,7 @@ import com.andreaserick.multiversechess.engine.GameSession
 import com.andreaserick.multiversechess.engine.Notation
 import com.andreaserick.multiversechess.engine.Side
 import com.andreaserick.multiversechess.engine.Variant
+import com.andreaserick.multiversechess.online.Ticket
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -72,6 +76,12 @@ fun MenuScreen(
     onContinue: () -> Unit,
     onPuzzles: () -> Unit,
     puzzleProgress: String,
+    canPlayOnline: Boolean,
+    resumableOnline: Ticket?,
+    onContinueOnline: () -> Unit,
+    playerName: String,
+    onInvite: (Variant, Int?, Side, String) -> Unit,
+    onJoin: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showRules by remember { mutableStateOf(false) }
@@ -79,6 +89,8 @@ fun MenuScreen(
     var variant by rememberSaveable { mutableStateOf(Variant.STANDARD) }
     var timelineLimit by rememberSaveable { mutableStateOf<Int?>(GameSession.DEFAULT_TIMELINE_LIMIT) }
     var showLimits by remember { mutableStateOf(false) }
+    var showInvite by remember { mutableStateOf(false) }
+    var showJoin by remember { mutableStateOf(false) }
 
     Box(modifier.fillMaxSize()) {
         TimeVortex(Modifier.fillMaxSize())
@@ -149,6 +161,29 @@ fun MenuScreen(
                     SecondaryPill(onClick = { onStart(GameMode(variant = variant, timelineLimit = timelineLimit)) }, modifier = Modifier.fillMaxWidth()) {
                         Text("Pass and play")
                     }
+                    if (canPlayOnline) {
+                        HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
+                        if (resumableOnline != null) {
+                            PrimaryPill(onClick = onContinueOnline, modifier = Modifier.fillMaxWidth()) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Continue game with a friend")
+                                    Text(
+                                        listOfNotNull(
+                                            resumableOnline.opponentName?.let { "vs $it" },
+                                            "you play ${resumableOnline.side.displayName}",
+                                            resumableOnline.displayCode,
+                                        ).joinToString(" · "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.White.copy(alpha = 0.8f),
+                                    )
+                                }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SecondaryPill(onClick = { showInvite = true }, modifier = Modifier.weight(1f)) { Text("Invite a friend", maxLines = 1) }
+                            SecondaryPill(onClick = { showJoin = true }, modifier = Modifier.weight(1f)) { Text("Join a friend", maxLines = 1) }
+                        }
+                    }
                     HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
                     SecondaryPill(onClick = onPuzzles, modifier = Modifier.fillMaxWidth()) {
                         Text("Puzzles")
@@ -164,6 +199,27 @@ fun MenuScreen(
     }
 
     if (showRules) RulesDialog(onDismiss = { showRules = false })
+    if (showInvite) {
+        InviteDialog(
+            variant = variant,
+            timelineLimit = timelineLimit,
+            playerName = playerName,
+            onInvite = { side, name ->
+                showInvite = false
+                onInvite(variant, timelineLimit, side, name)
+            },
+            onDismiss = { showInvite = false },
+        )
+    }
+    if (showJoin) {
+        JoinDialog(
+            onJoin = { code ->
+                showJoin = false
+                onJoin(code)
+            },
+            onDismiss = { showJoin = false },
+        )
+    }
     if (showLimits) {
         LimitDialog(
             selected = timelineLimit,
@@ -248,6 +304,58 @@ private fun TimeVortex(modifier: Modifier = Modifier) {
     }
 }
 
+@Composable
+private fun InviteDialog(variant: Variant, timelineLimit: Int?, playerName: String, onInvite: (Side, String) -> Unit, onDismiss: () -> Unit) {
+    var name by rememberSaveable { mutableStateOf(playerName) }
+    val valid = Ticket.parseName(name)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        title = { Text("Invite a friend") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "You'll get a link to send to your friend, to play on their own phone. " +
+                        "${variant.displayName}, ${limitLabel(timelineLimit).lowercase()}, as chosen in the menu.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                NameField(name, onChange = { name = it })
+                PrimaryPill(onClick = { valid?.let { onInvite(Side.WHITE, it) } }, enabled = valid != null, modifier = Modifier.fillMaxWidth()) {
+                    Text("I play White")
+                }
+                PrimaryPill(onClick = { valid?.let { onInvite(Side.BLACK, it) } }, enabled = valid != null, modifier = Modifier.fillMaxWidth()) {
+                    Text("I play Black")
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun JoinDialog(onJoin: (String) -> Unit, onDismiss: () -> Unit) {
+    var text by rememberSaveable { mutableStateOf("") }
+    val code = Ticket.parseCode(text)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = { code?.let(onJoin) }, enabled = code != null) { Text("Join") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        title = { Text("Join a friend") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Type the code from your friend's invitation, or paste the link.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    placeholder = { Text("ABCDE-FGHJK") },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+    )
+}
+
 /** E.g. "vs computer · Standard · turn 12 · 3 timelines". */
 private fun resumeSummary(game: GameSession): String {
     val parts = mutableListOf(if (game.mode.computerSide != null) "vs computer" else "Pass and play")
@@ -257,7 +365,7 @@ private fun resumeSummary(game: GameSession): String {
     return parts.joinToString(" · ")
 }
 
-private val LIMITS = listOf<Int?>(GameSession.DEFAULT_TIMELINE_LIMIT, 8, null)
+private val LIMITS: List<Int?> = (1..8).toList() + null
 
 private fun limitLabel(limit: Int?) = if (limit == null) "Unlimited" else "Up to $limit each"
 
@@ -268,7 +376,7 @@ private fun LimitDialog(selected: Int?, onSelect: (Int?) -> Unit, onDismiss: () 
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         title = { Text("Timelines") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     "Once a player has created this many timelines, they can't branch any more. A " +
                         "limit keeps the multiverse small enough for the game to reliably tell whether " +
@@ -289,9 +397,10 @@ private fun LimitDialog(selected: Int?, onSelect: (Int?) -> Unit, onDismiss: () 
                         Column(Modifier.padding(start = 12.dp)) {
                             Text(limitLabel(option), style = MaterialTheme.typography.titleSmall)
                             Text(
-                                when (option) {
-                                    GameSession.DEFAULT_TIMELINE_LIMIT -> "Recommended. Checkmate is reliably recognised."
-                                    null -> "As in 5D chess. In huge games the game may not recognise checkmate."
+                                when {
+                                    option == null -> "As in 5D chess. In huge games the game may not recognise checkmate."
+                                    option == GameSession.DEFAULT_TIMELINE_LIMIT -> "Recommended. Checkmate is reliably recognised."
+                                    option < GameSession.DEFAULT_TIMELINE_LIMIT -> "Smaller, quicker games."
                                     else -> "Bigger games; checkmate is nearly always recognised."
                                 },
                                 style = MaterialTheme.typography.bodySmall,
@@ -449,6 +558,12 @@ private val RULES = listOf(
         "way to move the present without leaving a king attacked you are checkmated, or " +
         "stalemated if no king is threatened. After the game you can still try the loser's " +
         "moves to see why.",
+    "Playing a friend" to
+        "Invite a friend gives you a link to send. When your friend opens it on their phone and " +
+        "gives their name, the game begins; without the app, the link shows a code they can type " +
+        "under Join a friend. The names you both give are shown to each other in that game. " +
+        "Undo only takes back moves you haven't submitted. If either of you leaves, the game " +
+        "waits: Continue game with a friend picks it up again.",
     "Fairy pieces" to
         "Some variants add pieces drawn as lettered discs. S, princess: a rook or bishop move. " +
         "U, unicorn: equal distance along exactly three dimensions. D, dragon: equal distance " +

@@ -1,3 +1,4 @@
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -10,6 +11,21 @@ val keystoreProperties = Properties().apply {
     rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
 
+// The relay for online games (see relay/): relay.url in gradle.properties. Debug builds can use
+// another one, such as a relay running on this computer: relay.debugUrl in local.properties.
+val relayUrl: String = providers.gradleProperty("relay.url").getOrElse("").trimEnd('/')
+val debugRelayUrl: String = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}.getProperty("relay.debugUrl")?.trimEnd('/') ?: relayUrl
+
+/** Points a build at [url]: the app talks to it, and its /join/ links open the app. */
+fun com.android.build.api.dsl.VariantDimension.relay(url: String) {
+    val uri = URI(url.ifBlank { "https://relay.invalid" })
+    buildConfigField("String", "RELAY_URL", "\"$url\"")
+    manifestPlaceholders["relayScheme"] = uri.scheme
+    manifestPlaceholders["relayHost"] = uri.host
+}
+
 android {
     namespace = "com.andreaserick.multiversechess"
     compileSdk = 37
@@ -20,6 +36,7 @@ android {
         targetSdk = 37
         versionCode = 2
         versionName = "0.2.0"
+        relay(relayUrl)
     }
 
     signingConfigs {
@@ -34,6 +51,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            relay(debugRelayUrl)
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -49,6 +69,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -66,5 +87,6 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.okhttp)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
