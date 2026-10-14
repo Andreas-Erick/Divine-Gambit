@@ -87,6 +87,48 @@ class SessionAndComputerTest {
         assertEquals(session.state, refused.undo().state)
     }
 
+    private val backRankMate = GameState(
+        mapOf(0 to Timeline(0, 0, listOf(Board.parse("......k.", "........", "........", "........", "........", "........", "......PP", "r......K")))),
+        Side.WHITE,
+    )
+
+    @Test
+    fun `claiming no legal turn ends the game when there is none`() {
+        val session = GameSession(GameMode(), state = backRankMate).claimNoLegalTurn()
+        assertEquals(Outcome.Checkmate(Side.BLACK), session.outcome)
+        assertTrue(session.isExploring)
+    }
+
+    @Test
+    fun `claiming no legal turn shows one when there is`() {
+        val session = GameSession(GameMode()).tap(Pos.of(0, 0, "e2")).claimNoLegalTurn()
+        assertEquals(Outcome.Ongoing, session.outcome)
+        assertTrue(assertNotNull(session.message).startsWith("There is a legal turn"))
+        // Cancelling the search changes nothing.
+        val cancelled = GameSession(GameMode()).claimNoLegalTurn(stop = { true })
+        assertEquals(Outcome.Ongoing, cancelled.outcome)
+        assertNull(cancelled.message)
+    }
+
+    @Test
+    fun `a computer that finds no turn resigns unless it really has none`() {
+        val resigned = GameSession(GameMode(computerSide = Side.WHITE)).applyComputerTurn(null)
+        assertEquals(Outcome.Resignation(Side.BLACK), resigned.outcome)
+        val mated = GameSession(GameMode(computerSide = Side.WHITE), state = backRankMate).applyComputerTurn(null)
+        assertEquals(Outcome.Checkmate(Side.BLACK), mated.outcome)
+    }
+
+    @Test
+    fun `computer mates in one when it can`() {
+        // White to move: Ra1-a8 is mate on the back rank.
+        val state = GameState(
+            mapOf(0 to Timeline(0, 0, listOf(Board.parse("......k.", ".....ppp", "........", "........", "........", "........", "......PP", "R.....K.")))),
+            Side.WHITE,
+        )
+        val moves = assertNotNull(ComputerPlayer(Random(1)).chooseTurn(state))
+        assertEquals(listOf(Pos.of(0, 0, "a8")), moves.map { it.to })
+    }
+
     @Test
     fun `resigning ends the game`() {
         val session = GameSession(GameMode(computerSide = Side.WHITE)).resign()

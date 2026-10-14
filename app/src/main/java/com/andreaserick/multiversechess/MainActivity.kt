@@ -69,6 +69,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                 onUndo = viewModel::undo,
                 onResign = viewModel::resign,
                 onShowSolution = viewModel::showSolution,
+                onClaimNoLegalTurn = viewModel::claimNoLegalTurn,
                 onStartPuzzle = viewModel::startPuzzle,
                 onExit = viewModel::back,
                 modifier = modifier,

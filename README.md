@@ -125,7 +125,14 @@ another present board continues that timeline if the board hasn't been played ye
 new timeline from it if it has. Checkmate, the computer player and the puzzle checker all share one
 turn search (`TurnWalker` in `engine/.../TurnSearch.kt`) that tries the present boards in every
 order, allows extra moves on other boards at any point, and explores each position reached by
-different orders only once.
+different orders only once. It also abandons any partial turn that already leaves a royal piece
+capturable: within a turn, moves can only add threats, never remove them, because a threat comes
+from a board the opponent can play (which this turn can't touch) against a board that already
+exists (which can't change), and new boards only ever extend a line of attack.
+
+The computer looks two turns ahead: it scores its candidate turns, then checks the opponent's
+replies to the most promising ones, takes any checkmate it finds, and avoids turns that allow one.
+It thinks for about two seconds at most.
 
 The engine's tests (`./gradlew :engine:test`) cover movement in all four dimensions, branching and
 jumping, active and inactive timelines, the present moving back, checks through time against kings
@@ -158,11 +165,14 @@ The UI uses the Lora typeface (SIL Open Font License, see
 
 ## Known simplifications
 
-* Checkmate detection searches for a legal turn with a node budget, and allows at most one extra
-  move on a non-present board (two when checking puzzles). In very complex positions the search
-  can give up; the game then continues instead of declaring mate (players can resign).
+* After each turn, a search with a node budget checks whether the next player has a legal turn,
+  allowing at most one extra move on a non-present board (two when checking puzzles). In very
+  complex positions it can run out before deciding; the game then continues, and **⋮ › No legal
+  turn?** searches every turn, as long as it takes, to end the game or show a legal first move. A
+  computer that can't find a turn resigns rather than being declared mated.
 * Castling only checks whether the king's squares are attacked on its own board, not by pieces
   elsewhere in the multiverse.
 * Pawns always promote to a queen.
-* The computer opponent is basic: it evaluates material one turn ahead.
+* The computer looks only two turns ahead and judges positions mostly by material, so it's a
+  sparring partner rather than a strong player.
 * Pieces are drawn with the Unicode chess symbols from the system font.
