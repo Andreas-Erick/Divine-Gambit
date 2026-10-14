@@ -30,11 +30,17 @@ data class GameSession(
 ) {
     val isComputerTurn: Boolean get() = outcome == Outcome.Ongoing && mode.computerSide == state.sideToMove
 
+    /**
+     * After checkmate or stalemate, moves can still be tried on the losing side's behalf to see
+     * why every turn fails; they just can't be submitted.
+     */
+    val isExploring: Boolean get() = outcome is Outcome.Checkmate || outcome == Outcome.Stalemate
+
     /** Legal moves of the selected piece. */
     val targets: List<Move> get() = selected?.let { state.legalMovesFrom(it) } ?: emptyList()
 
     fun tap(pos: Pos): GameSession {
-        if (outcome != Outcome.Ongoing || isComputerTurn) return this
+        if ((outcome != Outcome.Ongoing && !isExploring) || isComputerTurn) return this
         selected?.let { sel ->
             state.legalMovesFrom(sel).firstOrNull { it.to == pos }?.let { return play(it) }
         }
@@ -52,18 +58,11 @@ data class GameSession(
     )
 
     fun submit(): GameSession {
-        if (outcome != Outcome.Ongoing) return this
-        if (!state.canSubmit) {
-            val reason = if (state.turnMoves.isEmpty()) {
-                "Make a move first."
-            } else {
-                "You still have to move on every board in the present (outlined in gold)."
-            }
-            return copy(message = reason)
+        if (outcome != Outcome.Ongoing) {
+            if (!isExploring) return this
+            return copy(message = refusal() ?: "The game is over.")
         }
-        if (state.isInCheck(state.sideToMove)) {
-            return copy(message = "Your king could be captured. Undo and try different moves.")
-        }
+        refusal()?.let { return copy(message = it) }
         mode.puzzle?.let { return submitPuzzle(it) }
         val next = state.submit()
         return copy(
@@ -158,6 +157,14 @@ data class GameSession(
         if (outcome != Outcome.Ongoing || mode.puzzle != null) return this
         val loser = if (mode.computerSide != null) mode.computerSide.opponent else state.sideToMove
         return copy(outcome = Outcome.Resignation(loser.opponent), selected = null, previous = this)
+    }
+
+    /** Why the current turn can't be submitted, or null if it can. */
+    private fun refusal(): String? = when {
+        state.turnMoves.isEmpty() -> "Make a move first."
+        !state.canSubmit -> "You still have to move on every board in the present (outlined in gold)."
+        state.isInCheck(state.sideToMove) -> "Your king could be captured. Undo and try different moves."
+        else -> null
     }
 
     private fun logLine(before: GameState, move: Move): String =

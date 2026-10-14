@@ -101,6 +101,32 @@ class FairyPiecesTest {
     }
 
     @Test
+    fun `brawn attacks along diagonals with a forward step and no backward one`() {
+        // White's forward along the timeline axis is towards -1. Black knights on d5, d3 and c4 on
+        // the timelines either side of the brawn's.
+        val targets = Board.parse(*kingsOnly).with(
+            listOf("d5", "d3", "c4").map { Square.parse(it) to Piece(PieceType.KNIGHT, Side.BLACK) },
+        )
+        val now = Board.parse(*kingsOnly).with(listOf(Square.parse("d4") to Piece(PieceType.BRAWN, Side.WHITE, moved = true)))
+        val state = GameState(
+            mapOf(
+                -1 to Timeline(-1, 0, listOf(targets, targets, targets), parent = 0),
+                0 to Timeline(0, 0, listOf(now, now, now)),
+                1 to Timeline(1, 0, listOf(targets, targets, targets), parent = 0),
+            ),
+            Side.WHITE,
+        )
+        val captures = state.destinations(Pos.of(0, 2, "d4")).filter { state.pieceAt(it) != null }.toSet()
+        assertEquals(
+            setOf(
+                Pos.of(-1, 2, "d5"), // forward along rank and timeline
+                Pos.of(-1, 2, "c4"), // forward along the timeline, sideways along the file
+            ),
+            captures,
+        )
+    }
+
+    @Test
     fun `brawn promotes and can be captured en passant`() {
         val state = GameState.initial(Variant.BRAWNS).turns("e2e4", "a7a6", "e4e5", "d7d5")
         val captured = state.move("e5", "d6")

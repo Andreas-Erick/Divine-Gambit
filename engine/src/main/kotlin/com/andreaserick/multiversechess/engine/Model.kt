@@ -53,7 +53,7 @@ enum class PieceType(val letter: Char, val value: Int, val displayName: String) 
     /** Equal distance along all four dimensions. */
     DRAGON('D', 2, "Dragon"),
 
-    /** A pawn that can also capture diagonally between a forward axis and any other dimension. */
+    /** A pawn that captures along any diagonal with a forward step (rank or timeline) and no backward one. */
     BRAWN('W', 2, "Brawn");
 
     /** Moves forward, double-steps, captures en passant and promotes like a pawn. */
