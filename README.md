@@ -61,9 +61,9 @@ game's code or assets.
   board in the present (gold ring), may move on your other raised boards, then tap **Submit**.
   Branching a new active timeline into the past pulls the present back with it, which can end your
   obligation to play the other present boards.
-* You can't submit a turn that lets the opponent capture any of your kings, including kings on
-  past boards (red arrows show the threats, and a red **!** marks each timeline whose advancement
-  would let a king be captured). If no sequence of moves can shift the present without leaving a
+* You can't submit a turn that lets the opponent capture any of your royal pieces (kings, or royal
+  queens in that variant), including those on past boards (red arrows show the threats, and a red
+  **!** marks each timeline whose advancement would let a king be captured). If no sequence of moves can shift the present without leaving a
   king attacked, it's checkmate when a king is threatened and stalemate otherwise. After the game,
   you can still try the loser's moves to see why every turn fails.
 * While a piece is selected, the boards it can't land on (the opponent's, half a turn out of step)
@@ -79,6 +79,10 @@ game's code or assets.
 | Tap a board that's too small to play on | Zoom in on it. |
 | Corners button (top right) | Show the whole multiverse. |
 | **Present** | Back to the boards you have to play. |
+| Row-of-boards button | **History view**: only the selected piece's timeline, through time, with your opponent's boards hidden. |
+| Column-of-boards button | **Parallel view**: only the selected piece's moment, across every timeline. |
+
+Without a piece selected, the History and Parallel views use the first board you have to play.
 
 ## Variants
 
@@ -91,6 +95,7 @@ Pick a variant in the menu before starting a game. Fairy pieces are drawn as dis
 | Princesses | Queens become princesses (**S**): any distance along one or two dimensions. |
 | Unicorns | Bishops become unicorns (**U**): equal distance along exactly three dimensions. |
 | Brawns | Pawns become brawns (**W**): pawns that can capture one step along any diagonal that includes a forward step (rank or timeline) and no backward one. |
+| Royal Queens | The queen becomes a royal queen (**Y**): it moves like a queen but is royal, so it must be protected like a king. The king becomes a common king (**C**): it moves like a king but may be attacked or captured. |
 | Menagerie | Unicorn, princess, dragon (**D**, equal distance along all four dimensions) and brawns. |
 
 Unicorns and dragons can never move on their own board, so they wake up once there is history to

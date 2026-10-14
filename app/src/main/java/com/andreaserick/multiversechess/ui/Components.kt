@@ -80,7 +80,7 @@ fun SecondaryPill(
     )
 }
 
-/** A round button floating over the multiverse, for navigation and tools. */
+/** A round button floating over the multiverse, for navigation and tools. [selected] fills it, for toggles. */
 @Composable
 fun RoundIconButton(
     icon: ImageVector,
@@ -88,18 +88,24 @@ fun RoundIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    selected: Boolean = false,
 ) {
+    val tint = when {
+        selected -> Color.White
+        enabled -> Palette.ink
+        else -> Palette.ink.copy(alpha = 0.3f)
+    }
     Surface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.size(48.dp).shadow(3.dp, CircleShape),
         shape = CircleShape,
-        color = Palette.card,
-        contentColor = Palette.ink,
-        border = BorderStroke(1.dp, Palette.presentEdge),
+        color = if (selected) Palette.amethyst else Palette.card,
+        contentColor = tint,
+        border = BorderStroke(1.dp, if (selected) Palette.amethyst else Palette.presentEdge),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription, tint = if (enabled) Palette.ink else Palette.ink.copy(alpha = 0.3f))
+            Icon(icon, contentDescription, tint = tint)
         }
     }
 }
@@ -125,6 +131,26 @@ val OverviewIcon: ImageVector = ImageVector.Builder("Overview", 24.dp, 24.dp, 24
         close()
     }
 }.build()
+
+/** Three boards in a row: one timeline through time. */
+val HistoryIcon: ImageVector = boardsIcon("History", horizontal = true)
+
+/** Three boards in a column: one moment across timelines. */
+val ParallelIcon: ImageVector = boardsIcon("Parallel", horizontal = false)
+
+private fun boardsIcon(name: String, horizontal: Boolean): ImageVector =
+    ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
+        path(fill = SolidColor(Color.Black)) {
+            for (i in 0 until 3) {
+                val (x, y) = if (horizontal) 1.5f + i * 7.5f to 8.5f else 8.5f to 1.5f + i * 7.5f
+                moveTo(x, y)
+                lineTo(x + 6f, y)
+                lineTo(x + 6f, y + 6f)
+                lineTo(x, y + 6f)
+                close()
+            }
+        }
+    }.build()
 
 /** A small disc in a side's colour, used next to "White to move" and in move lists. */
 @Composable

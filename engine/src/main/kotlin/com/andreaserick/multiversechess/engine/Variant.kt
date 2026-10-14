@@ -11,6 +11,11 @@ enum class Variant(
     PRINCESSES("Princesses", "Queens are replaced by princesses, which move like a rook or a bishop.", "RNBSKBNR"),
     UNICORNS("Unicorns", "Bishops are replaced by unicorns, which only move through time and timelines.", "RNUQKUNR"),
     BRAWNS("Brawns", "Pawns are replaced by brawns, which have extra ways to capture.", "RNBQKBNR", pawn = 'W'),
+    ROYAL_QUEENS(
+        "Royal Queens",
+        "The queen is royal and must be protected; the king is a common piece that may be lost.",
+        "RNBYCBNR",
+    ),
     MENAGERIE(
         "Menagerie",
         "Every fairy piece at once: a princess, a unicorn, a dragon and a row of brawns.",

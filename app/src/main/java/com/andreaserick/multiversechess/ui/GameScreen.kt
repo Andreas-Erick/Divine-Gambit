@@ -81,6 +81,7 @@ fun GameScreen(
     var showHint by remember { mutableStateOf(false) }
     var confirmSolution by remember { mutableStateOf(false) }
     var dismissedOutcome by remember { mutableStateOf<Outcome?>(null) }
+    var slice by remember { mutableStateOf<SliceView?>(null) }
     val puzzle = session.mode.puzzle
     val state = session.state
     val ongoing = session.outcome == Outcome.Ongoing
@@ -107,11 +108,18 @@ fun GameScreen(
         camera.focus(state.focusArea(), resetZoom, comfortableSquare, fallback = Layout.boardRect(l, t))
     }
     LaunchedEffect(state.sideToMove, turnStart, camera.viewSize) {
-        if (turnStart != null) focusPresent()
+        if (turnStart != null && slice == null) focusPresent()
+    }
+
+    // A slice view frames what it keeps, and follows the selected piece to another timeline (for
+    // History) or another moment (for Parallel).
+    val anchor = session.sliceAnchor()
+    LaunchedEffect(slice, if (slice == SliceView.HISTORY) anchor.l else anchor.t, camera.viewSize) {
+        slice?.let { camera.frame(state.sliceArea(it, anchor), TIMELINE_MIN_BOARD) }
     }
 
     Box(modifier.fillMaxSize()) {
-        MultiverseView(session, camera, onTap, Modifier.fillMaxSize())
+        MultiverseView(session, camera, onTap, Modifier.fillMaxSize(), slice)
 
         // Top: back, title and tools, floating over the multiverse on a band of parchment that
         // fades out, so boards passing underneath don't run through the title.
@@ -173,16 +181,26 @@ fun GameScreen(
             }
         }
 
-        // Below the tools: zoom out to the whole multiverse.
-        RoundIconButton(
-            OverviewIcon,
-            "Show the whole multiverse",
-            { scope.launch { camera.frame(state.overviewArea()) } },
+        // Below the tools: zoom out to the whole multiverse, or keep only the selected piece's
+        // timeline (History) or moment (Parallel).
+        Column(
             Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
                 .padding(top = 68.dp, end = 12.dp),
-        )
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            RoundIconButton(OverviewIcon, "Show the whole multiverse", {
+                slice = null
+                scope.launch { camera.frame(state.overviewArea()) }
+            })
+            for ((view, icon, label) in listOf(
+                Triple(SliceView.HISTORY, HistoryIcon, "History view: this timeline through time"),
+                Triple(SliceView.PARALLEL, ParallelIcon, "Parallel view: this moment across timelines"),
+            )) {
+                RoundIconButton(icon, label, { slice = if (slice == view) null else view }, selected = slice == view)
+            }
+        }
 
         // Bottom: status and turn controls.
         Box(
@@ -207,6 +225,7 @@ fun GameScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         SecondaryPill(onClick = onUndo, enabled = session.previous != null) { Text("Undo") }
                         SecondaryPill(onClick = {
+                            slice = null
                             scope.launch { focusPresent(resetZoom = true) }
                         }) { Text("Present") }
                         PrimaryPill(

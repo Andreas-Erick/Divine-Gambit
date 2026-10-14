@@ -132,7 +132,7 @@ class GameState(
     private fun newTimelineIndex(side: Side): Int =
         if (side == Side.WHITE) whiteTimelines + 1 else -(blackTimelines + 1)
 
-    /** Moves by [attacker] (from boards [attacker] could play) that would capture an enemy king. */
+    /** Moves by [attacker] (from boards [attacker] could play) that would capture a royal piece. */
     fun kingCaptures(attacker: Side, firstOnly: Boolean = false): List<Move> {
         val found = ArrayList<Move>()
         for (timeline in playableTimelines(attacker)) {
@@ -140,7 +140,7 @@ class GameState(
                 if (piece.side != attacker) continue
                 for (move in generateMoves(Pos(timeline.index, timeline.end, square.x, square.y), capturesOnly = true)) {
                     val target = pieceAt(move.to)
-                    if (target != null && target.type == PieceType.KING && target.side != attacker) {
+                    if (target != null && target.type.isRoyal && target.side != attacker) {
                         found += move
                         if (firstOnly) return found
                     }

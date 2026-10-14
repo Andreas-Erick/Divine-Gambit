@@ -34,7 +34,8 @@ enum class Side {
 
 /**
  * [letter] is the piece's letter in notation and in [Board.parse] (upper case White, lower case Black).
- * The last four are fairy pieces used by some variants; their letters follow 5D chess notation.
+ * The pieces after the pawn are fairy pieces used by some variants; their letters follow 5D chess
+ * notation.
  */
 enum class PieceType(val letter: Char, val value: Int, val displayName: String) {
     KING('K', 0, "King"),
@@ -54,7 +55,16 @@ enum class PieceType(val letter: Char, val value: Int, val displayName: String) 
     DRAGON('D', 2, "Dragon"),
 
     /** A pawn that captures along any diagonal with a forward step (rank or timeline) and no backward one. */
-    BRAWN('W', 2, "Brawn");
+    BRAWN('W', 2, "Brawn"),
+
+    /** Moves like a queen, but is royal: if it can be captured, its side is in check. */
+    ROYAL_QUEEN('Y', 9, "Royal queen"),
+
+    /** Moves like a king, but isn't royal: it may be attacked or captured like any other piece. */
+    COMMON_KING('C', 3, "Common king");
+
+    /** A piece that must never be left capturable: a king or a royal queen. */
+    val isRoyal: Boolean get() = this == KING || this == ROYAL_QUEEN
 
     /** Moves forward, double-steps, captures en passant and promotes like a pawn. */
     val isPawnLike: Boolean get() = this == PAWN || this == BRAWN

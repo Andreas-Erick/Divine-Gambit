@@ -253,7 +253,9 @@ private val RULES = listOf(
     "Finding your way" to
         "Tap a timeline's ribbon, or its label on the left edge, to see the whole timeline. Tap a " +
         "board that's too small to play on to zoom in on it. The corners button shows the whole " +
-        "multiverse, and Present brings you back to the boards you have to play.",
+        "multiverse, and Present brings you back to the boards you have to play. History view " +
+        "keeps only the selected piece's timeline, through time; Parallel view only its moment, " +
+        "across every timeline. Both hide your opponent's boards.",
     "Four dimensions" to
         "Pieces move as in chess, but through file, rank, time (one step = one full turn back) and " +
         "timeline (one row up or down).",
@@ -277,8 +279,8 @@ private val RULES = listOf(
         "your next new timeline would be active, so branching into the past would pull the " +
         "present back with it.",
     "Check and mate" to
-        "You can't submit a turn that lets the opponent capture any of your kings, now or in the " +
-        "past. A red ! marks a timeline whose advancement would let a king be captured. With no " +
+        "You can't submit a turn that lets the opponent capture any of your kings (or other royal " +
+        "pieces), now or in the past. A red ! marks a timeline whose advancement would let a king be captured. With no " +
         "way to move the present without leaving a king attacked you are checkmated, or " +
         "stalemated if no king is threatened. After the game you can still try the loser's " +
         "moves to see why.",
@@ -286,5 +288,7 @@ private val RULES = listOf(
         "Some variants add pieces drawn as lettered discs. S, princess: a rook or bishop move. " +
         "U, unicorn: equal distance along exactly three dimensions. D, dragon: equal distance " +
         "along all four. W, brawn: a pawn that can capture one step along any diagonal that " +
-        "includes a forward step (rank or timeline) and no backward one.",
+        "includes a forward step (rank or timeline) and no backward one. Y, royal queen: moves " +
+        "like a queen but is royal, so it must be protected like a king. C, common king: moves " +
+        "like a king but isn't royal, so it may be attacked or lost.",
 )
