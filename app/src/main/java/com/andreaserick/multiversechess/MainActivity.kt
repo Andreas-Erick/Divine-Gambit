@@ -87,6 +87,8 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
         }
         Screen.MENU -> MenuScreen(
             onStart = viewModel::startGame,
+            resumable = viewModel.resumable,
+            onContinue = viewModel::continueGame,
             onPuzzles = viewModel::openPuzzles,
             puzzleProgress = "${Puzzles.all.count { it.id in viewModel.solvedPuzzles }} / ${Puzzles.all.size}",
             modifier = modifier,

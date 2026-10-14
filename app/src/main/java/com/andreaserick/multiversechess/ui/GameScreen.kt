@@ -109,7 +109,8 @@ fun GameScreen(
         camera.focus(state.focusArea(), resetZoom, comfortableSquare, fallback = Layout.boardRect(l, t))
     }
     LaunchedEffect(state.sideToMove, turnStart, camera.viewSize) {
-        if (turnStart != null && slice == null) focusPresent()
+        // A game continued in the middle of a turn still needs placing once.
+        if ((turnStart != null || !camera.initialized) && slice == null) focusPresent()
     }
 
     // A slice view frames what it keeps, and follows the selected piece to another timeline (for
