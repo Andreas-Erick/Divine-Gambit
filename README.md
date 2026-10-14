@@ -4,6 +4,9 @@ Chess with time travel and parallel timelines, for Android. Send a knight two tu
 and the timeline splits; play both futures at once; protect your kings in the present *and* the
 past.
 
+**[Download the latest APK](https://github.com/Andreas-Erick/5D-Chess/releases/latest)** (Android 7.0
+or newer; allow installing from your browser or file manager when asked).
+
 Inspired by *5D Chess With Multiverse Time Travel*. This is an independent fan project. It is not
 affiliated with or endorsed by the original game's developers, and it uses none of the original
 game's code or assets.
@@ -28,6 +31,7 @@ game's code or assets.
 * **Play against the computer** as either side, or **pass and play** on one device. Undo is
   unlimited.
 * **Six puzzles** that teach the core ideas, each checked by an exhaustive solver.
+* **Your game is saved** as you play, and **Continue game** picks it up after the app is closed.
 
 ## How to play
 
@@ -157,6 +161,10 @@ player.
    It uses AGP 9.2, Kotlin 2.4 and Jetpack Compose, with Gradle 9.4.1 through the wrapper
    (which runs on the Java 25 runtime bundled with current Android Studio).
 2. Run the `app` configuration on a device or emulator (Android 7.0 / API 24 or newer).
+
+Release builds (`./gradlew :app:assembleRelease`) are minified, and signed if a
+`keystore.properties` file in the repository root names a keystore (`storeFile`, `storePassword`,
+`keyAlias`, `keyPassword`). That file and the keystore are kept out of git.
 
 The rules live in the `engine` module, plain Kotlin with no Android dependencies, so they can be
 tested quickly on the JVM:
