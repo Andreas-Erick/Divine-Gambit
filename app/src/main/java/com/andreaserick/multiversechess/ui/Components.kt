@@ -21,7 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.Side
@@ -101,6 +103,28 @@ fun RoundIconButton(
         }
     }
 }
+
+/** Four corner brackets: "show everything". Drawn here since only the core icon set is bundled. */
+val OverviewIcon: ImageVector = ImageVector.Builder("Overview", 24.dp, 24.dp, 24f, 24f).apply {
+    path(fill = SolidColor(Color.Black)) {
+        // Each corner is an L, 2 units thick and 6 long.
+        for ((x, y, dx, dy) in listOf(listOf(3f, 3f, 1f, 1f), listOf(21f, 3f, -1f, 1f), listOf(21f, 21f, -1f, -1f), listOf(3f, 21f, 1f, -1f))) {
+            moveTo(x, y)
+            lineTo(x + 6 * dx, y)
+            lineTo(x + 6 * dx, y + 2 * dy)
+            lineTo(x + 2 * dx, y + 2 * dy)
+            lineTo(x + 2 * dx, y + 6 * dy)
+            lineTo(x, y + 6 * dy)
+            close()
+        }
+        // A small board in the middle.
+        moveTo(9f, 9f)
+        lineTo(15f, 9f)
+        lineTo(15f, 15f)
+        lineTo(9f, 15f)
+        close()
+    }
+}.build()
 
 /** A small disc in a side's colour, used next to "White to move" and in move lists. */
 @Composable
