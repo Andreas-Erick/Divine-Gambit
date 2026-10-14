@@ -52,6 +52,7 @@ object AiText {
         if (number !in 1..count) return null
         val remark = clean(reply.lines().drop(1).joinToString(" ").ifBlank { reply.substringAfter(number.toString()) })
             .trimStart(' ', '.', ':', ')', '-', '—')
+            .trim('"', '“', '”', '\'', ' ')
             .take(MAX_REMARK)
         return number - 1 to remark.ifBlank { null }
     }
@@ -96,15 +97,8 @@ object AiText {
     /** The built-in puzzle "Into the past", in the format puzzle designers write. */
     const val EXAMPLE_PUZZLE = """TITLE: Into the past
 HINT: A king can step away from your pieces, but its past self can't.
-BOARD:
-....k...
-ppp.....
-........
-........
-........
-........
-.....PPP
-....R.K.
+WHITE: Kg1, Re1, Pf2, Pg2, Ph2
+BLACK: Ke8, Pa7, Pb7, Pc7
 HISTORY:
 g1h1
 e8d7
@@ -117,8 +111,9 @@ e1e8"""
         "A puzzle is \"White to move and checkmate in one turn\". You write it in this exact format:\n\n" +
         "TITLE: a short, evocative title (at most 32 characters)\n" +
         "HINT: one sentence that nudges without giving the answer away\n" +
-        "BOARD: the starting board, 8 lines from rank 8 down to rank 1, 8 characters each: K Q R B N P for White, " +
-        "k q r b n p for Black, . for an empty square. Always give each side exactly one king.\n" +
+        "WHITE: White's pieces on the starting board, as a piece letter and a square, separated by commas: K king, Q queen, " +
+        "R rook, B bishop, N knight, P pawn (e.g. Kg1, Re1, Pf2)\n" +
+        "BLACK: Black's pieces, the same way (e.g. Ke8, Pa7). Each side has exactly one king.\n" +
         "HISTORY: the turns played from that board before the puzzle, one line per turn, starting with White and " +
         "alternating, ending with Black's turn so that White is to move. A line lists the turn's moves separated by commas.\n" +
         "SOLUTION: White's mating turn, its moves separated by commas.\n\n" +
@@ -168,8 +163,12 @@ e1e8"""
     }
 
     private fun field(text: String, name: String): String? =
-        text.lines().firstOrNull { it.trim().uppercase().startsWith("$name:") }
+        text.lines().firstOrNull { startsSection(it, name) }
             ?.substringAfter(':')?.let(::clean)?.trim('"', '*', ' ')?.takeIf { it.isNotEmpty() }
+
+    /** Whether [line] starts the section [name], however it's decorated ("**TITLE:**", "## Title:"). */
+    internal fun startsSection(line: String, name: String): Boolean =
+        line.trim().trimStart('#', '*', ' ').uppercase().replace("*", "").startsWith("$name:")
 
     /** [text] on one line, without control characters or markdown emphasis. */
     private fun clean(text: String): String =
@@ -198,28 +197,62 @@ object PuzzleDrafts {
 
     /** The draft in [text], or the reason it can't be read. */
     fun parse(text: String): Result<PuzzleDraft> = runCatching {
-        val lines = text.lines().map { it.trim().trim('`') }.filter { it.isNotEmpty() && !it.startsWith("```") }
-        fun section(name: String): List<String> {
-            val start = lines.indexOfFirst { it.uppercase().trimStart('#', '*', ' ').startsWith("$name:") }
-            require(start >= 0) { "The $name section is missing." }
+        val lines = text.lines().map { it.replace(ASIDE, " ").trim().trim('`') }.filter { it.isNotEmpty() && !it.startsWith("```") }
+        fun section(name: String): List<String>? {
+            val start = lines.indexOfFirst { AiText.startsSection(it, name) }
+            if (start < 0) return null
             val first = lines[start].substringAfter(':').trim().trim('*', ' ')
-            val rest = lines.drop(start + 1).takeWhile { line -> SECTIONS.none { line.uppercase().trimStart('#', '*', ' ').startsWith("$it:") } }
+            val rest = lines.drop(start + 1).takeWhile { line -> SECTIONS.none { AiText.startsSection(line, it) } }
             return listOfNotNull(first.takeIf { it.isNotEmpty() }) + rest
         }
-        val board = section("BOARD").map { it.replace(" ", "") }.filter { it.isNotEmpty() }
-        require(board.size == BOARD_SIZE && board.all { it.length == BOARD_SIZE }) {
-            "The BOARD must be 8 lines of 8 characters (it has ${board.size} lines: ${board.joinToString(" / ")})."
+        fun required(name: String) = requireNotNull(section(name)) { "The $name section is missing." }
+        val white = section("WHITE")
+        val black = section("BLACK")
+        // Pieces by square; a board drawn as 8 lines of 8 characters is read too.
+        val board = if (white != null || black != null) {
+            boardFromPieces(white.orEmpty().joinToString(","), black.orEmpty().joinToString(","))
+        } else {
+            val rows = required("BOARD").map { it.replace(" ", "") }.filter { it.isNotEmpty() }
+            require(rows.size == BOARD_SIZE && rows.all { it.length == BOARD_SIZE }) {
+                "The BOARD must be 8 lines of 8 characters (it has ${rows.size} lines: ${rows.joinToString(" / ")}). " +
+                    "Better: list the pieces instead, as WHITE: and BLACK: lines."
+            }
+            rows
         }
+
         PuzzleDraft(
-            title = section("TITLE").firstOrNull()?.take(AiText.MAX_TITLE) ?: "",
-            hint = section("HINT").joinToString(" ").take(AiText.MAX_HINT),
+            title = section("TITLE")?.firstOrNull()?.take(AiText.MAX_TITLE) ?: "",
+            hint = section("HINT")?.joinToString(" ")?.take(AiText.MAX_HINT) ?: "",
             board = board,
-            history = section("HISTORY").filter { !it.equals("none", ignoreCase = true) },
-            solution = section("SOLUTION").joinToString(", ").takeIf { it.isNotBlank() },
+            history = section("HISTORY").orEmpty().filter { !it.trim('.', ' ').equals("none", ignoreCase = true) },
+            solution = required("SOLUTION").joinToString(", ").takeIf { it.isNotBlank() },
         )
     }
 
-    private val SECTIONS = listOf("TITLE", "HINT", "BOARD", "HISTORY", "SOLUTION")
+    private val SECTIONS = listOf("TITLE", "HINT", "WHITE", "BLACK", "BOARD", "HISTORY", "SOLUTION")
+
+    /** A comment in parentheses, such as "(White moves the pawn)", but not a board like "(L0 T3)". */
+    private val ASIDE = Regex("""\((?!\s*L\s*[+-]?\d)[^)]*\)""")
+
+    private val PIECE = Regex("""^([KQRBNPSUDWYCkqrbnpsudwyc])?([a-hA-H][1-8])$""")
+
+    /** A board, as 8 rows from rank 8 down, from the pieces listed for each side, like "Kg1, Re1, Pf2". */
+    private fun boardFromPieces(white: String, black: String): List<String> {
+        val rows = Array(BOARD_SIZE) { CharArray(BOARD_SIZE) { '.' } }
+        for ((side, list) in listOf(Side.WHITE to white, Side.BLACK to black)) {
+            for (token in list.split(',', ';', ' ').map { it.trim().trimEnd('.') }.filter { it.isNotEmpty() }) {
+                val match = PIECE.find(token) ?: throw IllegalArgumentException(
+                    "'$token' in ${side.displayName.uppercase()} isn't a piece and square like \"Kg1\" or \"Pf2\".",
+                )
+                val letter = match.groupValues[1].ifEmpty { "P" }.uppercase()[0]
+                val square = Square.parse(match.groupValues[2].lowercase())
+                val row = BOARD_SIZE - 1 - square.y
+                require(rows[row][square.x] == '.') { "Two pieces are placed on ${square}." }
+                rows[row][square.x] = if (side == Side.WHITE) letter else letter.lowercaseChar()
+            }
+        }
+        return rows.map { String(it) }
+    }
 
     /** Reads and checks the puzzle in [text]: what can't be read is a problem like any other. */
     fun read(text: String, id: String, stop: () -> Boolean = { false }): DraftCheck =
@@ -324,11 +357,39 @@ object PuzzleDrafts {
         class Wrong(val problem: String) : Played
     }
 
-    private val SPATIAL = Regex("""^(?:L\s*([+-]?\d+)\s+)?([a-h][1-8])\s*-?\s*([a-h][1-8])$""", RegexOption.IGNORE_CASE)
+    // Moves as people write them, with or without the piece's letter, "x" for a capture, and check
+    // or promotion marks: "e2e4", "Ra3-a8", "L+1 Nb1xc3+", "L0 T3 Nc3 > L0 T2 xc3".
+    private const val LETTER = "[KQRBNPSUDWYC]?"
+    private const val MARKS = """(?:=?[QRBN])?[+#!?]*"""
+    private val SPATIAL = Regex("""^(?:L\s*([+-]?\d+)\s+)?(?:T\s*\d+\s+)?$LETTER([a-h][1-8])\s*[-x]?\s*$LETTER([a-h][1-8])$MARKS$""")
+    /** Short notation, naming only where the piece goes: "e4", "Qxd5", "L+1 Nc3". */
+    private val SHORT = Regex("""^(?:L\s*([+-]?\d+)\s+)?(?:T\s*\d+\s+)?([KQRBNPSUDWYC])?x?([a-h][1-8])$MARKS$""")
     private val BETWEEN = Regex(
-        """^\(?L\s*([+-]?\d+)\s*,?\s*T\s*(\d+)\)?\s*([a-h][1-8])\s*(?:>|->|→)\s*\(?L\s*([+-]?\d+)\s*,?\s*T\s*(\d+)\)?\s*([a-h][1-8])$""",
-        RegexOption.IGNORE_CASE,
+        """^\(?L\s*([+-]?\d+)\s*,?\s*T\s*(\d+)\)?\s*$LETTER([a-h][1-8])\s*(?:>|->|→)\s*\(?L\s*([+-]?\d+)\s*,?\s*T\s*(\d+)\)?\s*x?$LETTER([a-h][1-8])$MARKS$""",
     )
+
+    /**
+     * A move in short notation: the one move, on a board the side to move can play, of a piece of
+     * that kind (a pawn without a letter) to that square on its own board.
+     */
+    private fun short(state: GameState, text: String, match: MatchResult): Played {
+        val timeline = match.groupValues[1].ifEmpty { null }?.toInt()
+        val type = match.groupValues[2].ifEmpty { "P" }[0]
+        val square = match.groupValues[3]
+        val moves = state.timelines.values
+            .filter { (timeline == null || it.index == timeline) && state.isPlayable(it.index, it.end) }
+            .flatMap { line ->
+                val target = Pos.of(line.index, line.end, square)
+                line.last.pieces()
+                    .filter { (_, piece) -> piece.side == state.sideToMove && piece.type.letter == type }
+                    .flatMap { (from, _) -> state.legalMovesFrom(Pos(line.index, line.end, from.x, from.y)).filter { it.to == target } }
+            }
+        return when (moves.size) {
+            1 -> Played.Ok(state.apply(moves[0]), moves[0])
+            0 -> Played.Wrong("'$text': no ${state.sideToMove.displayName} piece of that kind can move to $square on a board it can play. Write the move from square to square, like \"e2e4\".")
+            else -> Played.Wrong("'$text' could be several moves (${moves.joinToString { Notation.describe(state, it) }}); write it from square to square, like \"e2e4\".")
+        }
+    }
 
     /** Plays one move written as [text] in [state], or says what's wrong with it. */
     private fun play(state: GameState, text: String): Played {
@@ -342,7 +403,8 @@ object PuzzleDrafts {
             val (fl, ft) = board(m.groupValues[1], m.groupValues[2])
             val (tl, tt) = board(m.groupValues[4], m.groupValues[5])
             Pos.of(fl, ft, m.groupValues[3].lowercase()) to Pos.of(tl, tt, m.groupValues[6].lowercase())
-        } ?: return Played.Wrong("'$text' isn't a move in the expected format (\"e2e4\", \"L+1 e2e4\" or \"L0 T3 c3 > L0 T2 c3\").")
+        } ?: return SHORT.find(text)?.let { short(state, text, it) }
+            ?: Played.Wrong("'$text' isn't a move in the expected format (\"e2e4\", \"L+1 e2e4\" or \"L0 T3 c3 > L0 T2 c3\").")
 
         val where = "${Notation.boardLabel(from.l, from.t)} ${from.square}"
         val piece = state.pieceAt(from) ?: return Played.Wrong("'$text': there's no piece on $where.")
@@ -351,7 +413,7 @@ object PuzzleDrafts {
         val legal = state.legalMovesFrom(from)
         val move = legal.firstOrNull { it.to == to }
             ?: return Played.Wrong("'$text' isn't legal. The ${piece.type.displayName.lowercase()} on $where can go to: " +
-                legal.take(12).joinToString { Notation.describe(state, it).substringAfter(' ') }.ifEmpty { "nowhere" } + ".")
+                legal.take(12).joinToString { Notation.describe(state, it).substringAfter(") ") }.ifEmpty { "nowhere" } + ".")
         return Played.Ok(state.apply(move), move)
     }
 }
