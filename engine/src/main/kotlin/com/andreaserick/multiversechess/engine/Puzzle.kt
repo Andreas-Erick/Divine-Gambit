@@ -11,6 +11,9 @@ class Puzzle(
     val solution: List<Pair<Pos, Pos>>,
     private val setup: PuzzleSetup.() -> Unit,
 ) {
+    /** The side that has to deliver mate. */
+    val side: Side get() = start().sideToMove
+
     /** The position the puzzle starts from. */
     fun start(): GameState = PuzzleSetup().apply(setup).state.also {
         check(it.turnMoves.isEmpty()) { "Puzzle $id must start at the beginning of a turn" }
@@ -26,7 +29,10 @@ class Puzzle(
         fun isCheckmatingTurn(state: GameState, budget: Int = VERIFY_BUDGET): Boolean {
             if (!state.canSubmit || state.isInCheck(state.sideToMove)) return false
             val mover = state.sideToMove
-            return state.submit().evaluateOutcome(budget, maxOptionalMoves = 2) == Outcome.Checkmate(mover)
+            val after = state.submit()
+            // Without a threat it can't be mate, and that's much quicker to see than a search.
+            if (after.threats().isEmpty()) return false
+            return after.evaluateOutcome(budget, maxOptionalMoves = 2) == Outcome.Checkmate(mover)
         }
     }
 }
@@ -35,6 +41,11 @@ class Puzzle(
 class PuzzleSetup {
     lateinit var state: GameState
         private set
+
+    /** Starts from [position], which must be at the start of a turn (used for generated puzzles). */
+    fun position(position: GameState) {
+        state = position
+    }
 
     /** Starts from one board (rows from rank 8 down to rank 1), White to move. */
     fun board(vararg rows: String) {
@@ -70,12 +81,29 @@ class PuzzleSetup {
 
 /** Finds every turn that checkmates. Exhaustive within [maxOptionalMoves]; meant for small puzzles. */
 object PuzzleSolver {
-    fun mates(start: GameState, maxOptionalMoves: Int = 1, budget: Int = Puzzle.VERIFY_BUDGET): List<List<Move>> {
+    fun mates(start: GameState, maxOptionalMoves: Int = 1, budget: Int = Puzzle.VERIFY_BUDGET): List<List<Move>> =
+        matesWithin(start, Int.MAX_VALUE, maxOptionalMoves, budget)!!
+
+    /**
+     * Like [mates], but gives up (returning null) after [nodeBudget] positions or once [stop]
+     * returns true, so it can be used on positions of any size.
+     */
+    fun matesWithin(
+        start: GameState,
+        nodeBudget: Int,
+        maxOptionalMoves: Int = 1,
+        budget: Int = Puzzle.VERIFY_BUDGET,
+        stop: () -> Boolean = { false },
+    ): List<List<Move>>? {
         val found = ArrayList<List<Move>>()
-        TurnWalker(Int.MAX_VALUE, maxOptionalMoves, extendLegalTurns = true).walk(start) { state ->
-            if (Puzzle.isCheckmatingTurn(state, budget)) found += state.turnMoves
-            false
+        return try {
+            TurnWalker(nodeBudget, maxOptionalMoves, extendLegalTurns = true, stop = stop).walk(start) { state ->
+                if (Puzzle.isCheckmatingTurn(state, budget)) found += state.turnMoves
+                false
+            }
+            found
+        } catch (_: BudgetExceeded) {
+            null
         }
-        return found
     }
 }

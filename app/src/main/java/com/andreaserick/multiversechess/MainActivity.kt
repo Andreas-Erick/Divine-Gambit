@@ -69,6 +69,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                 onUndo = viewModel::undo,
                 onResign = viewModel::resign,
                 onShowSolution = viewModel::showSolution,
+                onRestartPuzzle = viewModel::restartPuzzle,
                 onClaimNoLegalTurn = viewModel::claimNoLegalTurn,
                 onStartPuzzle = viewModel::startPuzzle,
                 onExit = viewModel::back,
@@ -78,8 +79,12 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
         Screen.PUZZLES -> {
             BackHandler { viewModel.back() }
             PuzzleListScreen(
-                puzzles = Puzzles.all,
+                puzzles = viewModel.allPuzzles,
                 solved = viewModel.solvedPuzzles,
+                canGenerate = viewModel.canGenerate,
+                generating = viewModel.generating,
+                generateFailed = viewModel.generateFailed,
+                onGenerate = viewModel::generatePuzzle,
                 onOpen = viewModel::startPuzzle,
                 onBack = viewModel::back,
                 modifier = modifier,
@@ -90,7 +95,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
             resumable = viewModel.resumable,
             onContinue = viewModel::continueGame,
             onPuzzles = viewModel::openPuzzles,
-            puzzleProgress = "${Puzzles.all.count { it.id in viewModel.solvedPuzzles }} / ${Puzzles.all.size}",
+            puzzleProgress = viewModel.allPuzzles.let { all -> "${all.count { it.id in viewModel.solvedPuzzles }} / ${all.size}" },
             modifier = modifier,
         )
     }

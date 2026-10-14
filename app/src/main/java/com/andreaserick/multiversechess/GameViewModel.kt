@@ -15,6 +15,8 @@ import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Puzzle
 import com.andreaserick.multiversechess.engine.Puzzles
+import com.andreaserick.multiversechess.engine.PuzzleCodec
+import com.andreaserick.multiversechess.engine.PuzzleGenerator
 import com.andreaserick.multiversechess.engine.SavedGame
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +65,59 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Puzzles made by [generatePuzzle], kept on the device. */
+    var generatedPuzzles by mutableStateOf<List<Puzzle>>(emptyList())
+        private set
+
+    /** The built-in puzzles followed by the generated ones. */
+    val allPuzzles: List<Puzzle> get() = Puzzles.all + generatedPuzzles
+
+    /** New puzzles can be generated once every built-in one is solved. */
+    val canGenerate: Boolean get() = Puzzles.all.all { it.id in solvedPuzzles }
+
+    /** Busy making a new puzzle. */
+    var generating by mutableStateOf(false)
+        private set
+
+    /** Set when generating gave up without a puzzle. */
+    var generateFailed by mutableStateOf(false)
+        private set
+
+    private val puzzleFile = File(application.filesDir, "puzzles.txt")
+    private var generateJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            val loaded = withContext(saving) {
+                runCatching { puzzleFile.takeIf { it.exists() }?.readText()?.let(PuzzleCodec::decodeAll) }.getOrNull()
+            }
+            if (loaded != null) generatedPuzzles = loaded
+        }
+    }
+
+    /** Makes a new puzzle in the background, keeps it, and opens it. */
+    fun generatePuzzle() {
+        if (generating || !canGenerate) return
+        generating = true
+        generateFailed = false
+        generateJob = viewModelScope.launch {
+            val number = generatedPuzzles.size + 1
+            val puzzle = withContext(Dispatchers.Default) {
+                val job = coroutineContext.job
+                PuzzleGenerator(stop = { !job.isActive }).generate(number)
+            }
+            generating = false
+            if (puzzle == null) {
+                generateFailed = true
+                return@launch
+            }
+            generatedPuzzles = generatedPuzzles + puzzle
+            val all = generatedPuzzles
+            launch(saving) { runCatching { puzzleFile.writeText(PuzzleCodec.encodeAll(all)) } }
+            startPuzzle(puzzle)
+        }
+    }
+
     fun startGame(mode: GameMode) = show(GameSession(mode))
 
     fun continueGame() {
@@ -79,13 +134,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val nextPuzzle: Puzzle?
         get() {
             val current = session?.mode?.puzzle ?: return null
-            return Puzzles.all.getOrNull(Puzzles.all.indexOf(current) + 1)
+            val all = allPuzzles
+            return all.getOrNull(all.indexOfFirst { it.id == current.id } + 1)
         }
 
     /** Leaves the game, back to the puzzle list if it was a puzzle; from the puzzle list, to the menu. */
     fun back() {
         stopJob()
-        if (session == null) showingPuzzles = false
+        if (session == null) {
+            showingPuzzles = false
+            generateJob?.cancel()
+            generating = false
+        }
         session?.let { if (it.mode.puzzle == null && it.outcome == Outcome.Ongoing) resumable = it }
         session = null
     }
@@ -105,6 +165,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun showSolution() = update { it.showSolution() }
+
+    fun restartPuzzle() {
+        stopJob()
+        update { it.restartPuzzle() }
+    }
 
     fun resign() = update { it.resign() }
 

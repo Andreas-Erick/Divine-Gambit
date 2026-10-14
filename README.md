@@ -30,7 +30,8 @@ game's code or assets.
   across timelines and promotion, plus four fairy-piece variants.
 * **Play against the computer** as either side, or **pass and play** on one device. Undo is
   unlimited.
-* **Six puzzles** that teach the core ideas, each checked by an exhaustive solver.
+* **Six puzzles** that teach the core ideas, each checked by an exhaustive solver, and **new puzzles
+  generated on your phone** once you've solved them all.
 * **Your game is saved** as you play, and **Continue game** picks it up after the app is closed.
 
 ## How to play
@@ -119,8 +120,14 @@ travel through.
 ideas: attacking a king's past, which it can't step away from, with a rook, bishop and knight;
 protecting the attacker; one move that plays two timelines; and a unicorn. The positions are
 original, and built by replaying a short history so every board in them is consistent. Each has a
-hint and a reveal-solution option; a wrong answer is taken back with an example of how Black
-escapes, and solved puzzles are remembered on the device.
+hint, a restart button and a reveal-solution option; a wrong answer is taken back with an example
+of how Black escapes, and solved puzzles are remembered on the device.
+
+Once all six are solved, **Generate a puzzle** makes new ones on the phone, usually within a few
+seconds. It builds a sparse position, plays a few random turns of history (sometimes sending a
+piece back in time), and keeps the first position where White has a mate with only one or two
+solutions, preferring mates through time or across timelines. `PuzzleGenerator` lives in the
+engine, and generated puzzles are kept on the device.
 
 The puzzles are defined in `engine/.../Puzzles.kt`. `PuzzlesTest` checks that each stated solution
 is mate and that the exhaustive `PuzzleSolver` finds at most two mating turns, so new puzzles can

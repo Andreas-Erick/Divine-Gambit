@@ -116,6 +116,23 @@ data class GameSession(
         )
     }
 
+    /**
+     * Starts the puzzle over from its first position. Undo returns to where it was; a solution
+     * already revealed still keeps this attempt from counting as solved.
+     */
+    fun restartPuzzle(): GameSession {
+        val puzzle = mode.puzzle ?: return this
+        return copy(
+            state = puzzle.start(),
+            selected = null,
+            outcome = Outcome.Ongoing,
+            message = null,
+            lastTurn = emptyList(),
+            undecided = false,
+            previous = this,
+        )
+    }
+
     /** Plays the puzzle's solution, ready to submit. */
     fun showSolution(): GameSession {
         val puzzle = mode.puzzle ?: return this
