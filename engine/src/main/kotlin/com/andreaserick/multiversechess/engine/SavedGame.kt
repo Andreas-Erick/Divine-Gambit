@@ -18,7 +18,7 @@ object SavedGame {
         return buildString {
             appendLine(VERSION)
             val mode = session.mode
-            appendLine("mode ${mode.computerSide?.name ?: "-"} ${mode.variant.name} ${mode.timelineLimit ?: "-"}")
+            appendLine("mode ${mode.computerSide?.name ?: "-"} ${mode.variant.name} ${mode.timelineLimit ?: "-"}" + if (mode.aiOpponent) " ai" else "")
             appendLine("outcome ${encode(session.outcome)} ${if (session.undecided) 1 else 0}")
             appendLine("side ${start.sideToMove.name}")
             for (timeline in start.timelines.values.sortedBy { it.index }) {
@@ -59,6 +59,7 @@ object SavedGame {
                     computerSide = words[0].takeIf { it != "-" }?.let { Side.valueOf(it) },
                     variant = Variant.valueOf(words[1]),
                     timelineLimit = words[2].takeIf { it != "-" }?.toInt(),
+                    aiOpponent = words.getOrNull(3) == "ai",
                 )
                 "outcome" -> {
                     outcome = decodeOutcome(words[0])

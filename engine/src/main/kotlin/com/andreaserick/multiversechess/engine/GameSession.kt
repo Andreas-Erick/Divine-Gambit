@@ -1,7 +1,8 @@
 package com.andreaserick.multiversechess.engine
 
 /**
- * [computerSide] is the side the computer plays, or null for two humans on one device.
+ * [computerSide] is the side the computer plays, or null for two humans on one device; with
+ * [aiOpponent], a language model chooses the computer's turns among those the engine finds.
  * With a [puzzle], the game starts from the puzzle's position and ends once it is solved.
  * In an online game, [onlineSide] is the side played on this device; the game advances by
  * [OnlineEvent]s that both devices replay (see [GameSession.applyEvent]).
@@ -13,6 +14,7 @@ data class GameMode(
     /** How many timelines each player may create, or null for no limit (see [GameState.timelineLimit]). */
     val timelineLimit: Int? = null,
     val onlineSide: Side? = null,
+    val aiOpponent: Boolean = false,
 )
 
 /**
