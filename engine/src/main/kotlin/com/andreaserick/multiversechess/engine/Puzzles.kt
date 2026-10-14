@@ -80,70 +80,60 @@ object Puzzles {
             id = "crossing-over",
             title = "Crossing over",
             hint = "One move can play two boards: a piece that leaves one timeline and lands on the latest board " +
-                "of another advances both.",
-            solution = listOf(Pos.of(1, 6, "e8") to Pos.of(0, 6, "e8")),
+                "of another advances both. Black's king is boxed in on every board, past and present.",
+            solution = listOf(Pos.of(-1, 4, "f5") to Pos.of(0, 4, "f7")),
         ) {
             board(
-                "....k...",
-                "pp......",
+                ".r....rk",
+                "......pp",
                 "........",
                 "........",
                 "........",
-                "........",
+                "....N...",
                 "......PP",
-                "R......K",
+                "......K.",
             )
-            turns("a1a3", "a7a6")
-            // The rook travels one turn back, creating timeline +1.
-            move(Pos.of(0, 2, "a3"), Pos.of(0, 0, "a3"))
+            turns("e3f5", "b8b7", "f5e3")
+            // The rook travels one turn back, creating timeline -1, where the knight is still on f5.
+            // Black now has a timeline more than White, so Black's next one wouldn't move the present.
+            move(Pos.of(0, 3, "b7"), Pos.of(0, 1, "b7"))
             submit()
-            move("e8d7", l = 1)
+            move("g1f1", l = -1)
             submit()
-            move("a3e3", l = 1)
-            submit()
-            move("e8d7")
-            move("b7b6", l = 1)
-            submit()
-            move("h1g1")
-            move("e3e8", l = 1)
-            submit()
-            move("d7c6")
-            move("d7c6", l = 1)
+            move("b7c7", l = -1)
             submit()
         },
         Puzzle(
             id = "unicorn",
             title = "The unicorn",
             hint = "A unicorn moves the same distance along exactly three dimensions, such as timeline, file and rank, " +
-                "or file, rank and time.",
-            solution = listOf(Pos.of(1, 6, "g4") to Pos.of(0, 6, "f5")),
+                "or file, rank and time. It never attacks its own board, only others.",
+            solution = listOf(Pos.of(-1, 6, "h6") to Pos.of(0, 6, "g7")),
         ) {
             board(
-                "....k...",
-                "pp...p..",
+                "r.....nk",
+                "p.....pp",
+                ".....P..",
+                "......U.",
                 "........",
                 "........",
-                "........",
-                ".......U",
                 "......PP",
-                ".......K",
+                "......K.",
             )
-            turns("h1g1", "a7a6")
-            // The unicorn travels one turn back (and one file and rank), creating timeline +1.
-            move(Pos.of(0, 2, "h3"), Pos.of(0, 0, "g4"))
+            turns("h2h3", "a8b8", "h3h4")
+            // The rook travels one turn back, creating timeline -1.
+            // Black now has a timeline more than White, so Black's next one wouldn't move the present.
+            move(Pos.of(0, 3, "b8"), Pos.of(0, 1, "b8"))
             submit()
-            move("b7b6", l = 1)
+            move("h3h4", l = -1)
             submit()
-            move("h1g1", l = 1)
+            move("b8c8", l = -1)
             submit()
-            move("e8d7")
-            move("e8d7", l = 1)
+            // The unicorn leaves timeline 0 for -1, playing both boards.
+            move(Pos.of(0, 4, "g5"), Pos.of(-1, 4, "h6"))
             submit()
-            move("g1h1")
-            move("g1h1", l = 1)
-            submit()
-            move("d7c6")
-            move("d7c6", l = 1)
+            move("g7g6")
+            move("a7a6", l = -1)
             submit()
         },
     )

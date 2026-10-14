@@ -17,42 +17,19 @@ class ComputerPlayer(
         val me = state.sideToMove
         var best: GameState? = null
         var bestScore = Double.NEGATIVE_INFINITY
-        var nodes = 0
         var candidates = 0
-
-        fun exhausted() = nodes >= nodeBudget || candidates >= maxCandidates
-
-        fun consider(candidate: GameState) {
-            candidates++
-            val score = evaluate(candidate, me, state) + random.nextDouble() * 0.05
-            if (score > bestScore) {
-                bestScore = score
-                best = candidate
-            }
-        }
-
-        fun search(s: GameState, optionalLeft: Int) {
-            if (exhausted()) return
-            nodes++
-            val mandatory = s.mandatoryTimelines
-            if (mandatory.isEmpty()) {
-                if (!s.isInCheck(me)) {
-                    consider(s)
-                } else if (optionalLeft > 0) {
-                    for (move in ordered(s, s.allMoves())) {
-                        search(s.apply(move), optionalLeft - 1)
-                        if (exhausted()) return
-                    }
+        try {
+            TurnWalker(nodeBudget, maxOptionalMoves = 1, order = ::ordered).walk(state) { candidate ->
+                val score = evaluate(candidate, me, state) + random.nextDouble() * 0.05
+                if (score > bestScore) {
+                    bestScore = score
+                    best = candidate
                 }
-                return
+                ++candidates >= maxCandidates
             }
-            for (move in ordered(s, s.movesAdvancing(mandatory.first()))) {
-                search(s.apply(move), optionalLeft)
-                if (exhausted()) return
-            }
+        } catch (_: BudgetExceeded) {
+            // Keep the best turn found so far.
         }
-
-        search(state, optionalLeft = 1)
         best?.let { return it.turnMoves }
         val fallback = TurnSearch(nodeBudget * 5).findLegalTurn(state)
         return (fallback as? TurnSearchResult.Found)?.result?.turnMoves
