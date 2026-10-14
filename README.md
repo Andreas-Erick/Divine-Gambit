@@ -2,10 +2,9 @@
 
 Chess with time travel and parallel timelines, for Android. Send a knight two turns into the past
 and the timeline splits; play both futures at once; protect your kings in the present *and* the
-past.
+past. Play the computer, a friend on the same phone, or a friend on their own phone, anywhere.
 
-**[Download the latest APK](https://github.com/Andreas-Erick/5D-Chess/releases/latest)** (Android 7.0
-or newer; allow installing from your browser or file manager when asked).
+**[Download the latest APK](https://github.com/Andreas-Erick/5D-Chess/releases/latest)**
 
 Inspired by *5D Chess With Multiverse Time Travel*. This is an independent fan project. It is not
 affiliated with or endorsed by the original game's developers, and it uses none of the original
@@ -17,6 +16,18 @@ game's code or assets.
   <img src="docs/screenshots/overview.png" width="250" alt="Overview of a game with three timelines branching from the original">
 </p>
 
+## Contents
+
+* [Features](#features)
+* [Installing](#installing)
+* [How to play](#how-to-play)
+* [Playing a friend online](#playing-a-friend-online)
+* [Variants](#variants)
+* [Puzzles](#puzzles)
+* [How the rules are checked](#how-the-rules-are-checked)
+* [Building](#building)
+* [Known simplifications](#known-simplifications)
+
 ## Features
 
 * **The whole multiverse on one canvas.** Every board of every timeline, laid out like a board
@@ -27,12 +38,26 @@ game's code or assets.
   one button. Chips on the screen's edge name the timelines that are out of view, and turn gold
   when you still have to move there.
 * **Full four-dimensional movement** for every piece, including castling, en passant, double steps
-  across timelines and promotion, plus four fairy-piece variants.
-* **Play against the computer** as either side, or **pass and play** on one device. Undo is
-  unlimited.
+  across timelines and promotion, plus five fairy-piece variants.
+* **Three ways to play:** against the computer as either side, **pass and play** on one device, or
+  **online with a friend**: send them a link, and the game opens on their phone with both your
+  names on it.
+* **Choose the size of the multiverse:** each player may create up to 1 to 8 timelines, or as many
+  as they like.
 * **Six puzzles** that teach the core ideas, each checked by an exhaustive solver, and **new puzzles
   generated on your phone** once you've solved them all.
-* **Your game is saved** as you play, and **Continue game** picks it up after the app is closed.
+* **Nothing gets lost:** your game is saved as you play, **Continue game** picks it up after the app
+  is closed, and an online game waits for both of you to come back.
+
+## Installing
+
+1. On your phone (Android 7.0 or newer), open the
+   [latest release](https://github.com/Andreas-Erick/5D-Chess/releases/latest) and download the
+   `.apk` file.
+2. Open it, and allow installing from your browser or file manager when Android asks.
+
+A new version installs over the old one and keeps your saved game, solved puzzles and online games.
+Online play needs an internet connection; everything else works offline.
 
 ## How to play
 
@@ -59,10 +84,11 @@ game's code or assets.
   * Sliding pieces can't pass through boards that don't exist.
 * Moving to the **latest board of another timeline** continues that timeline, so one move plays
   two boards. Moving to an **earlier board** creates a new timeline branching from it.
-* **Timeline limit:** unless you choose Unlimited when starting a game, each player may create up
-  to 4 timelines (or 8). After that they can't branch any more, so moves into the past, including
-  attacks on a king's past, are no longer possible for them. The limit keeps the multiverse small
-  enough for the game to reliably tell whether a position is checkmate.
+* **Timeline limit:** when starting a game, choose how many timelines each player may create: 1 to
+  8 (4 is recommended), or Unlimited. Once a player has created that many, they can't branch any
+  more, so moves into the past, including attacks on a king's past, are no longer possible for
+  them. A limit keeps the multiverse small enough for the game to reliably tell whether a position
+  is checkmate.
 * A player may have at most **one more active timeline** than the opponent. Extra timelines are
   dimmed: they can still be played, but they don't hold back the present. A **purple arrow** at
   the end of the present means your next new timeline would be active.
@@ -71,12 +97,15 @@ game's code or assets.
   Branching a new active timeline into the past pulls the present back with it, which can end your
   obligation to play the other present boards.
 * You can't submit a turn that lets the opponent capture any of your royal pieces (kings, or royal
-  queens in that variant), including those on past boards (red arrows show the threats, and a red
-  **!** marks each timeline whose advancement would let a king be captured). If no sequence of moves can shift the present without leaving a
-  king attacked, it's checkmate when a king is threatened and stalemate otherwise. After the game,
-  you can still try the loser's moves to see why every turn fails.
+  queens in that variant), including those on past boards. Red arrows show the threats, and a red
+  **!** marks each timeline whose advancement would let a king be captured. If no sequence of moves
+  can shift the present without leaving a king attacked, it's checkmate when a king is threatened
+  and stalemate otherwise. After the game, you can still try the loser's moves to see why every
+  turn fails.
 * While a piece is selected, the boards it can't land on (the opponent's, half a turn out of step)
   are faded.
+
+**How to play** in the app's menu has these rules too, and explains every button.
 
 ### Finding your way around
 
@@ -92,6 +121,36 @@ game's code or assets.
 | Column-of-boards button | **Parallel view**: only the selected piece's moment, across every timeline. |
 
 Without a piece selected, the History and Parallel views use the first board you have to play.
+
+## Playing a friend online
+
+<p align="center">
+  <img src="docs/screenshots/online-invite.png" width="250" alt="Invite a friend: a game code, the link to send, and Share and Copy buttons">
+  <img src="docs/screenshots/online-join.png" width="250" alt="Maria invites you to play: the friend's side and settings, and a field for their name">
+  <img src="docs/screenshots/online-game.png" width="250" alt="An online game between Andreas and Maria after a knight's jump back in time, waiting for Maria's turn">
+</p>
+
+1. Choose the variant and timeline limit in the menu, tap **Invite a friend**, enter your name and
+   pick your side.
+2. **Share** the link with your friend (or tell them the code).
+3. When they open the link, the app opens on their phone and shows who's inviting them. They
+   enter their name, and the game begins. If the link opens in a browser instead (for example
+   inside another app), the page there offers to open the app or download it, and they can always
+   choose **Join a friend** and type the code.
+
+Your names are shown to each other during the game. You don't need to stay in the app: either of
+you can leave or close it, and **Continue game with a friend** in the menu picks the game up again.
+Turns made meanwhile arrive when you're back, and a turn sent while the connection is down goes
+through once it's restored. **Undo** only takes back moves you haven't submitted yet.
+
+The link works like a key to the free seat, so send it only to the friend you want to play:
+whoever opens it first plays.
+
+**What's sent where.** Online games go through a small relay on Cloudflare (`relay/` in this
+repository). It keeps each game's settings, turns and the two names you gave, and forgets the game
+30 days after anything last happened in it. There are no accounts and nothing else about you is
+kept. Both apps check every move against the rules, so a modified app can't play an illegal move or
+claim a checkmate that isn't one.
 
 ## Variants
 
@@ -126,8 +185,8 @@ of how Black escapes, and solved puzzles are remembered on the device.
 Once all six are solved, **Generate a puzzle** makes new ones on the phone, usually within a few
 seconds. It builds a sparse position, plays a few random turns of history (sometimes sending a
 piece back in time), and keeps the first position where White has a mate with only one or two
-solutions, preferring mates through time or across timelines. `PuzzleGenerator` lives in the
-engine, and generated puzzles are kept on the device.
+solutions, preferring mates through time or across timelines. Generated puzzles are kept on the
+device.
 
 The puzzles are defined in `engine/.../Puzzles.kt`. `PuzzlesTest` checks that each stated solution
 is mate and that the exhaustive `PuzzleSolver` finds at most two mating turns, so new puzzles can
@@ -156,11 +215,15 @@ The computer looks two turns ahead: it scores its candidate turns, then checks t
 replies to the most promising ones, takes any checkmate it finds, and avoids turns that allow one.
 It thinks for about two seconds at most.
 
+In an online game, each turn is replayed on both phones from the same list of moves, kept in order
+by the relay. The phone that submits a turn judges whether it ends the game, and the other phone
+searches the position again before accepting a checkmate or stalemate.
+
 The engine's tests (`./gradlew :engine:test`) cover movement in all four dimensions, branching and
 jumping, active and inactive timelines, the present moving back, checks through time against kings
 in the past, escapes that only exist when the boards are played in a particular order, castling,
-en passant, promotion, the fairy pieces, every puzzle, the session and undo logic, and the computer
-player.
+en passant, promotion, the fairy pieces, every puzzle, the session and undo logic, the computer
+player, and online games: replaying them, and refusing moves a player isn't allowed to send.
 
 ## Building
 
@@ -173,6 +236,10 @@ Release builds (`./gradlew :app:assembleRelease`) are minified, and signed if a
 `keystore.properties` file in the repository root names a keystore (`storeFile`, `storePassword`,
 `keyAlias`, `keyPassword`). That file and the keystore are kept out of git.
 
+Online games go through the relay in `relay/`, a Cloudflare Worker; its address is `relay.url` in
+`gradle.properties`, and a build without one leaves out online play. To run your own relay, or one
+on your computer for debug builds, see [relay/README.md](relay/README.md).
+
 The rules live in the `engine` module, plain Kotlin with no Android dependencies, so they can be
 tested quickly on the JVM:
 
@@ -182,8 +249,9 @@ tested quickly on the JVM:
 
 | Path | What it contains |
 | --- | --- |
-| `engine/` | Game rules: multiverse state, move generation, turn search, check and checkmate, computer player, variants, puzzles, session and undo logic. Unit-tested. |
-| `app/` | Android app: Compose UI that draws the multiverse, handles navigation and taps, and runs the computer on a background thread. |
+| `engine/` | Game rules: multiverse state, move generation, turn search, check and checkmate, computer player, variants, puzzles, session and undo logic, and online game events. Unit-tested. |
+| `app/` | Android app: Compose UI that draws the multiverse, handles navigation and taps, runs the computer on a background thread, and connects online games to the relay. |
+| `relay/` | Cloudflare Worker that online games meet through: it keeps each game's turns in order and passes them between the two phones. |
 | `docs/screenshots/` | The screenshots in this README. |
 
 The UI uses the Lora typeface (SIL Open Font License, see
@@ -202,4 +270,7 @@ The UI uses the Lora typeface (SIL Open Font License, see
 * Pawns always promote to a queen.
 * The computer looks only two turns ahead and judges positions mostly by material, so it's a
   sparring partner rather than a strong player.
+* Online, there's no notification when your friend moves while the app is closed: their turn
+  shows when you open it. The menu remembers one online game to continue, so joining another
+  replaces it.
 * Pieces are drawn with the Unicode chess symbols from the system font.
