@@ -44,6 +44,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.GameMode
+import com.andreaserick.multiversechess.engine.GameSession
 import com.andreaserick.multiversechess.engine.Side
 import com.andreaserick.multiversechess.engine.Variant
 import kotlin.math.PI
@@ -61,6 +62,8 @@ fun MenuScreen(
     var showRules by remember { mutableStateOf(false) }
     var showVariants by remember { mutableStateOf(false) }
     var variant by rememberSaveable { mutableStateOf(Variant.STANDARD) }
+    var timelineLimit by rememberSaveable { mutableStateOf<Int?>(GameSession.DEFAULT_TIMELINE_LIMIT) }
+    var showLimits by remember { mutableStateOf(false) }
 
     Box(modifier.fillMaxSize()) {
         TimeVortex(Modifier.fillMaxSize())
@@ -98,16 +101,24 @@ fun MenuScreen(
                         Spacer(Modifier.width(12.dp))
                         SecondaryPill(onClick = { showVariants = true }) { Text(variant.displayName) }
                     }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Timelines", style = MaterialTheme.typography.titleSmall)
+                            Text("How many each player may create.", style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        SecondaryPill(onClick = { showLimits = true }) { Text(limitLabel(timelineLimit)) }
+                    }
                     Spacer(Modifier.height(2.dp))
                     PrimaryPill(
-                        onClick = { onStart(GameMode(computerSide = Side.BLACK, variant = variant)) },
+                        onClick = { onStart(GameMode(computerSide = Side.BLACK, variant = variant, timelineLimit = timelineLimit)) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Play as White") }
                     PrimaryPill(
-                        onClick = { onStart(GameMode(computerSide = Side.WHITE, variant = variant)) },
+                        onClick = { onStart(GameMode(computerSide = Side.WHITE, variant = variant, timelineLimit = timelineLimit)) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Play as Black") }
-                    SecondaryPill(onClick = { onStart(GameMode(variant = variant)) }, modifier = Modifier.fillMaxWidth()) {
+                    SecondaryPill(onClick = { onStart(GameMode(variant = variant, timelineLimit = timelineLimit)) }, modifier = Modifier.fillMaxWidth()) {
                         Text("Pass and play")
                     }
                     HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
@@ -125,6 +136,16 @@ fun MenuScreen(
     }
 
     if (showRules) RulesDialog(onDismiss = { showRules = false })
+    if (showLimits) {
+        LimitDialog(
+            selected = timelineLimit,
+            onSelect = {
+                timelineLimit = it
+                showLimits = false
+            },
+            onDismiss = { showLimits = false },
+        )
+    }
     if (showVariants) {
         VariantDialog(
             selected = variant,
@@ -197,6 +218,54 @@ private fun TimeVortex(modifier: Modifier = Modifier) {
             ),
         )
     }
+}
+
+private val LIMITS = listOf<Int?>(GameSession.DEFAULT_TIMELINE_LIMIT, 8, null)
+
+private fun limitLabel(limit: Int?) = if (limit == null) "Unlimited" else "Up to $limit each"
+
+@Composable
+private fun LimitDialog(selected: Int?, onSelect: (Int?) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        title = { Text("Timelines") },
+        text = {
+            Column {
+                Text(
+                    "Once a player has created this many timelines, they can't branch any more. A " +
+                        "limit keeps the multiverse small enough for the game to reliably tell whether " +
+                        "a position is checkmate.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.inkSoft,
+                )
+                Spacer(Modifier.height(8.dp))
+                for (option in LIMITS) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .selectable(option == selected, role = Role.RadioButton, onClick = { onSelect(option) })
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = option == selected, onClick = null)
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(limitLabel(option), style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                when (option) {
+                                    GameSession.DEFAULT_TIMELINE_LIMIT -> "Recommended. Checkmate is reliably recognised."
+                                    null -> "As in 5D chess. In huge games the game may not recognise checkmate."
+                                    else -> "Bigger games; checkmate is nearly always recognised."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Palette.inkSoft,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -273,6 +342,10 @@ private val RULES = listOf(
     "The present" to
         "The pale column marks the present: the earliest end of any active timeline. You must move " +
         "on every board in it (gold ring), may move on your other raised boards, then tap Submit.",
+    "Timeline limit" to
+        "Unless you choose Unlimited when starting a game, each player may only create a few " +
+        "timelines. After that they can't branch any more: moves into the past are no longer " +
+        "possible, so they can't attack a king's past either.",
     "Active timelines" to
         "Each player may have only one more active timeline than the opponent. Extra timelines are " +
         "faded and don't hold back the present. A purple arrow at the end of the present means " +

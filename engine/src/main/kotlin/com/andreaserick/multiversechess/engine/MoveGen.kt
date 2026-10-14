@@ -68,8 +68,14 @@ internal fun GameState.generateMoves(from: Pos, capturesOnly: Boolean): List<Mov
         PieceType.DRAGON -> addRays(from, piece.side, Directions.dragon, slide = true, capturesOnly, out)
         PieceType.PAWN, PieceType.BRAWN -> addPawnMoves(from, board, piece, capturesOnly, out)
     }
+    // At the timeline limit, moves that would branch a new timeline aren't allowed.
+    if (atTimelineLimit(piece.side)) out.removeAll { it.branches(this) }
     return out
 }
+
+/** Whether [this] move creates a new timeline: it travels to a board that isn't its timeline's latest. */
+internal fun Move.branches(state: GameState): Boolean =
+    !isSpatial && (to.l == from.l || state.timelines.getValue(to.l).end != to.t)
 
 private fun GameState.addRays(
     from: Pos,
