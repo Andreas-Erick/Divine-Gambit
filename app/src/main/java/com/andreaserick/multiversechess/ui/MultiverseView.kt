@@ -173,12 +173,14 @@ class CameraState {
     /**
      * Glides to center [area] (in world units) in the uncovered part of the view. The first time,
      * with [resetZoom], or when the area wouldn't fit, it also zooms so the area fills the view
-     * comfortably, leaving neighbouring boards and ribbons in sight.
+     * comfortably, leaving neighbouring boards and ribbons in sight. If showing all of [area] would
+     * shrink squares below [minSquare] pixels, it shows [fallback] instead.
      */
-    suspend fun focus(area: Rect, resetZoom: Boolean = false) {
+    suspend fun focus(area: Rect, resetZoom: Boolean = false, minSquare: Float = 0f, fallback: Rect = area) {
         if (!hasSize) return
-        val fit = fitScale(area, 0.62f).coerceIn(minScale, MAX_SCALE)
-        moveTo(area.center, if (resetZoom || !initialized || fit < scale) fit else scale)
+        val shown = if (fitScale(area, 0.62f) * Layout.SQ < minSquare) fallback else area
+        val fit = fitScale(shown, 0.62f).coerceIn(minScale, MAX_SCALE)
+        moveTo(shown.center, if (resetZoom || !initialized || fit < scale) fit else scale)
     }
 
     /**
@@ -305,6 +307,9 @@ fun MultiverseView(
 /** Squares smaller than this on screen are too small to tap reliably. */
 private val MIN_TAPPABLE_SQUARE = 14.dp
 
+/** The present is shown no smaller than this, so it can be played without zooming. */
+internal val COMFORTABLE_SQUARE = 20.dp
+
 /** When framing a long timeline, boards stay at least this fraction of the view's width. */
 private const val TIMELINE_MIN_BOARD = 0.24f
 
@@ -382,8 +387,9 @@ private fun DrawScope.drawTimelineRail(
     var lastBottom = Float.NEGATIVE_INFINITY
     for (timeline in state.timelines.values.sortedBy { it.index }) {
         val l = timeline.index
-        val labelX = camera.toScreen(Offset(timeline.start * Layout.COL, 0f)).x
-        if (labelReadable && labelX > margin * 6) continue
+        // Branches are named above their first board, the first timeline to the left of it.
+        val labelLeft = timeline.start * Layout.COL - if (timeline.parent == null) Layout.SQ * 3 else 0f
+        if (labelReadable && camera.toScreen(Offset(labelLeft, 0f)).x >= 0f) continue
         val active = state.isActive(l)
         val text = textMeasurer.measure("L${Notation.timelineLabel(l)}", style.copy(color = if (active) Palette.ink else Palette.inkSoft))
         val chipSize = Size(text.size.width + padX * 2, text.size.height + padY * 2)
@@ -511,6 +517,9 @@ private fun DrawScope.drawMultiverse(
 
     for (timeline in state.timelines.values) {
         val active = state.isActive(timeline.index)
+        val label = textMeasurer.measure("L${Notation.timelineLabel(timeline.index)}", labels.timeline.copy(
+            color = if (active) Palette.ink else Palette.inkSoft,
+        ))
         for (t in timeline.start..timeline.end) {
             val rect = Layout.boardRect(timeline.index, t)
             if (!rect.inflate(Layout.SQ * 2).overlaps(visible)) continue
@@ -544,18 +553,22 @@ private fun DrawScope.drawMultiverse(
             }
 
             val caption = textMeasurer.measure("T${Notation.turnNumber(t)}", labels.caption)
-            val captionGap = if (playable) Layout.SQ * 0.95f else Layout.SQ * 0.45f
-            drawText(caption, topLeft = Offset(rect.left, rect.top - captionGap - caption.size.height))
+            val captionBottom = rect.top - if (playable) Layout.SQ * 0.95f else Layout.SQ * 0.45f
+            var captionLeft = rect.left
+            if (timeline.parent != null && t == timeline.start) {
+                // A branch is named above its first board, with that board's turn beside the name.
+                drawText(label, topLeft = Offset(rect.left, captionBottom - label.size.height))
+                captionLeft += label.size.width + Layout.SQ * 0.35f
+            }
+            drawText(caption, topLeft = Offset(captionLeft, captionBottom - caption.size.height))
 
             if (!active) drawRect(Palette.floor.copy(alpha = 0.6f), rect.topLeft, rect.size)
         }
-        val label = textMeasurer.measure("L${Notation.timelineLabel(timeline.index)}", labels.timeline.copy(
-            color = if (active) Palette.ink else Palette.inkSoft,
-        ))
-        val labelX = timeline.start * Layout.COL - label.size.width - Layout.SQ * 0.9f
-        val midY = timeline.index * Layout.ROW + Layout.BOARD / 2
-        if (timeline.parent == null) drawText(label, topLeft = Offset(labelX, midY - label.size.height / 2f))
-        else drawText(label, topLeft = Offset(timeline.start * Layout.COL, midY - Layout.BOARD / 2 - Layout.SQ * 1.9f))
+        if (timeline.parent == null) {
+            val labelX = timeline.start * Layout.COL - label.size.width - Layout.SQ * 0.9f
+            val midY = timeline.index * Layout.ROW + Layout.BOARD / 2
+            drawText(label, topLeft = Offset(labelX, midY - label.size.height / 2f))
+        }
     }
 
     // Arrows for moves between boards, and for threats against the side to move's kings.
