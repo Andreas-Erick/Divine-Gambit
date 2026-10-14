@@ -1,6 +1,9 @@
 # Launcher icon
 
-`build.py` draws the launcher icon and writes the three vector drawables in
+The icon, "Portal": an ivory knight bursting out of a gold-ringed portal onto a swirling board, on
+a night sky with a teal glow.
+
+`build.py` draws it (with the helpers in `shapes.py` and `knight.py`) and writes the three vector drawables in
 `app/src/main/res/drawable/` (`ic_launcher_foreground.xml`, `ic_launcher_background.xml` and
 `ic_launcher_monochrome.xml`), plus an `icon.svg` preview.
 
