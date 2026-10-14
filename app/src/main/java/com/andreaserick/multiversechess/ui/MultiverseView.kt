@@ -603,7 +603,7 @@ private fun DrawScope.drawMultiverse(
         }
     }
 
-    // A purple arrow on the present, beyond the edge where the side to move's next timeline would
+    // A teal arrow on the present, beyond the edge where the side to move's next timeline would
     // appear, when that timeline would be active (and so could move the present).
     val nextTimeline = if (side == Side.WHITE) state.whiteTimelines + 1 else -(state.blackTimelines + 1)
     if (ongoing && !history && !state.atTimelineLimit(side) && state.isActive(nextTimeline)) {
@@ -702,7 +702,7 @@ private fun DrawScope.drawMultiverse(
         val center = Offset(rect.right + Layout.SQ * 0.75f, rect.top - Layout.SQ * 0.75f)
         drawCircle(Palette.slab, Layout.SQ * 0.8f, center + Layout.SLAB * 0.6f)
         drawCircle(Palette.threat, Layout.SQ * 0.8f, center)
-        val mark = textMeasurer.measure("!", labels.timeline.copy(color = Color.White))
+        val mark = textMeasurer.measure("!", labels.timeline.copy(color = Palette.onThreat))
         drawText(mark, topLeft = center - Offset(mark.size.width / 2f, mark.size.height / 2f))
     }
 }
@@ -776,7 +776,7 @@ private fun DrawScope.drawTimelineRibbon(
 }
 
 /**
- * The frame around a board. Its colour says whose move the board is (ivory White, ink Black).
+ * The frame around a board. Its colour says whose move the board is (pale White, near-black Black).
  * Boards that can be played now sit on a raised card, ringed in gold if they must be played.
  */
 private fun DrawScope.drawBoardCard(rect: Rect, toMove: Side, playable: Boolean, must: Boolean) {
@@ -828,14 +828,14 @@ internal fun DrawScope.drawBoard(
             drawPiece(glyphs.getValue(piece.type), piece.side, center)
         } else {
             // Too small to read a glyph: a disc in the piece's colour keeps the position legible.
-            drawCircle(if (piece.side == Side.WHITE) Color.White else Palette.ink, Layout.SQ * 0.32f, center)
+            drawCircle(if (piece.side == Side.WHITE) Color.White else Palette.pieceDark, Layout.SQ * 0.32f, center)
         }
     }
 }
 
 private fun DrawScope.drawPiece(glyph: PieceGlyph, side: Side, center: Offset) {
     fun TextLayoutResult.topLeft() = center - Offset(size.width / 2f, size.height / 2f)
-    val (fill, outline) = if (side == Side.WHITE) Color.White to Palette.ink else Palette.ink to Color(0xFFF4EFE4)
+    val (fill, outline) = if (side == Side.WHITE) Color.White to Palette.pieceDark else Palette.pieceDark to Color(0xFFF4EFE4)
     if (glyph.outline == null) {
         val radius = Layout.SQ * 0.36f
         drawCircle(fill, radius, center)
