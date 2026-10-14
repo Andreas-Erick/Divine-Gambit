@@ -26,6 +26,11 @@ data class GameSession(
     val lastTurn: List<Move> = emptyList(),
     /** Whether the puzzle's solution has been revealed in this attempt. */
     val solutionShown: Boolean = false,
+    /**
+     * The check after the last turn ran out of search before finding the side to move a legal
+     * turn or proving there is none. [claimNoLegalTurn] settles it.
+     */
+    val undecided: Boolean = false,
     val previous: GameSession? = null,
 ) {
     val isComputerTurn: Boolean get() = outcome == Outcome.Ongoing && mode.computerSide == state.sideToMove
@@ -65,11 +70,13 @@ data class GameSession(
         refusal()?.let { return copy(message = it) }
         mode.puzzle?.let { return submitPuzzle(it) }
         val next = state.submit()
+        val (ended, undecided) = judge(next)
         return copy(
             state = next,
             selected = null,
             message = null,
-            outcome = next.evaluateOutcome(),
+            outcome = ended,
+            undecided = undecided,
             lastTurn = state.turnMoves,
             previous = this,
         )
@@ -126,24 +133,60 @@ data class GameSession(
         )
     }
 
-    /** Plays a whole turn chosen by the computer; null [moves] means it had no legal turn. */
+    /**
+     * Plays a whole turn chosen by the computer. Null [moves] means it found none: the game ends
+     * in checkmate or stalemate if there really is none, and otherwise the computer resigns.
+     */
     fun applyComputerTurn(moves: List<Move>?): GameSession {
         if (moves == null) {
-            val ended = if (state.threats().isNotEmpty()) Outcome.Checkmate(state.sideToMove.opponent) else Outcome.Stalemate
-            return copy(outcome = ended)
+            if (TurnSearch(OUTCOME_BUDGET).findLegalTurn(state) == TurnSearchResult.NoLegalTurn) {
+                return copy(outcome = endWithoutTurn(state), undecided = false)
+            }
+            return copy(
+                outcome = Outcome.Resignation(state.sideToMove.opponent),
+                undecided = false,
+                message = "${state.sideToMove.displayName} couldn't find a legal turn, so it resigned.",
+            )
         }
         var s = state
         val lines = moves.map { move -> logLine(s, move).also { s = s.apply(move) } }
         val next = s.submit()
+        val (ended, undecided) = judge(next)
         return copy(
             state = next,
             selected = null,
             message = null,
-            outcome = next.evaluateOutcome(),
+            outcome = ended,
+            undecided = undecided,
             log = log + lines,
             lastTurn = moves,
             previous = this,
         )
+    }
+
+    /**
+     * Searches every turn the side to move could play from the start of this turn, however long it
+     * takes (unless [stop] returns true). With none, the game ends in checkmate or stalemate;
+     * otherwise the message shows how one legal turn begins.
+     */
+    fun claimNoLegalTurn(stop: () -> Boolean = { false }): GameSession {
+        if (outcome != Outcome.Ongoing || isComputerTurn) return this
+        val start = turnStart()
+        return when (val result = TurnSearch(Int.MAX_VALUE, stop = stop).findLegalTurn(start)) {
+            is TurnSearchResult.Found -> {
+                val first = result.result.turnMoves.first()
+                copy(undecided = false, message = "There is a legal turn. It can start with ${Notation.describe(start, first)}.")
+            }
+            TurnSearchResult.NoLegalTurn -> copy(outcome = endWithoutTurn(start), undecided = false, selected = null, message = null)
+            TurnSearchResult.Inconclusive -> this
+        }
+    }
+
+    /** The position at the start of the current turn, before any of its moves. */
+    private fun turnStart(): GameState {
+        var s = this
+        while (s.state.turnMoves.isNotEmpty()) s = s.previous ?: break
+        return s.state
     }
 
     /** Steps back one action; against the computer, also skips back past the computer's turn. */
@@ -159,6 +202,20 @@ data class GameSession(
         return copy(outcome = Outcome.Resignation(loser.opponent), selected = null, previous = this)
     }
 
+    /**
+     * Whether the game is over once [next] is reached, and whether the search ran out before it
+     * could tell (in which case the game goes on, undecided).
+     */
+    private fun judge(next: GameState): Pair<Outcome, Boolean> = when (TurnSearch(OUTCOME_BUDGET).findLegalTurn(next)) {
+        TurnSearchResult.NoLegalTurn -> endWithoutTurn(next) to false
+        TurnSearchResult.Inconclusive -> Outcome.Ongoing to true
+        is TurnSearchResult.Found -> Outcome.Ongoing to false
+    }
+
+    /** How the game ends when the side to move in [at] has no legal turn. */
+    private fun endWithoutTurn(at: GameState): Outcome =
+        if (at.threats().isNotEmpty()) Outcome.Checkmate(at.sideToMove.opponent) else Outcome.Stalemate
+
     /** Why the current turn can't be submitted, or null if it can. */
     private fun refusal(): String? = when {
         state.turnMoves.isEmpty() -> "Make a move first."
@@ -169,4 +226,12 @@ data class GameSession(
 
     private fun logLine(before: GameState, move: Move): String =
         "${before.sideToMove.displayName}: ${Notation.describe(before, move)}"
+
+    companion object {
+        /**
+         * Positions searched after each turn for a legal reply. Generous, since it runs off the
+         * main thread and usually finds one within a few positions.
+         */
+        const val OUTCOME_BUDGET = 40_000
+    }
 }

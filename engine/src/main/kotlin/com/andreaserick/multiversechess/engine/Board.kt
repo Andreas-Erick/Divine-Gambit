@@ -59,6 +59,17 @@ class Board private constructor(
         return true
     }
 
+    /** A 64-bit fingerprint of the board (FNV-1a over its squares), to tell positions apart cheaply. */
+    internal fun fingerprint(): Long {
+        var h = -3750763034362895579L
+        fun mix(v: Int) {
+            h = (h xor v.toLong()) * 1099511628211L
+        }
+        for (piece in cells) mix(if (piece == null) 0 else (piece.type.ordinal + 1) * 4 + piece.side.ordinal * 2 + if (piece.moved) 1 else 0)
+        mix(enPassant?.let { it.y * BOARD_SIZE + it.x + 1 } ?: 0)
+        return h
+    }
+
     override fun equals(other: Any?): Boolean =
         other is Board && cells.contentEquals(other.cells) && enPassant == other.enPassant
 

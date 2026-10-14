@@ -68,6 +68,7 @@ fun GameScreen(
     onUndo: () -> Unit,
     onResign: () -> Unit,
     onShowSolution: () -> Unit,
+    onClaimNoLegalTurn: () -> Unit,
     onStartPuzzle: (Puzzle) -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
@@ -172,6 +173,11 @@ fun GameScreen(
                         )
                     } else {
                         DropdownMenuItem(text = { Text("Move list") }, onClick = { showMenu = false; showLog = true })
+                        DropdownMenuItem(
+                            text = { Text("No legal turn?") },
+                            enabled = ongoing && !thinking && !session.isComputerTurn,
+                            onClick = { showMenu = false; onClaimNoLegalTurn() },
+                        )
                         DropdownMenuItem(
                             text = { Text("Resign") },
                             enabled = ongoing,
@@ -381,6 +387,7 @@ private fun headline(session: GameSession, thinking: Boolean): String {
     val side = session.state.sideToMove.displayName
     return when {
         thinking && session.mode.puzzle != null -> "Checking your answer…"
+        thinking && !session.isComputerTurn -> "Checking the position…"
         thinking -> "$side is thinking…"
         session.mode.computerSide != null && session.mode.computerSide != session.state.sideToMove -> "Your turn · $side"
         else -> "$side to move"
@@ -393,6 +400,9 @@ private fun detail(session: GameSession): String {
     }
     if (session.outcome != Outcome.Ongoing) return outcomeText(session.outcome)
     val state = session.state
+    if (session.undecided) {
+        return "The search couldn't confirm a legal turn here. If you can't find one, choose ⋮ › No legal turn?"
+    }
     val parts = mutableListOf("Present: turn ${Notation.turnNumber(state.present)}")
     val left = state.mandatoryTimelines.size
     when {

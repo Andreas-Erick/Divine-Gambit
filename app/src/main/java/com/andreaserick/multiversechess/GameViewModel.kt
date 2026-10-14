@@ -17,6 +17,7 @@ import com.andreaserick.multiversechess.engine.Puzzle
 import com.andreaserick.multiversechess.engine.Puzzles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -65,14 +66,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun tap(pos: Pos) = update { it.tap(pos) }
 
+    /** Checking whether the opponent has a legal reply (or a puzzle answer is mate) can take a moment. */
     fun submit() {
         val current = session ?: return
-        if (current.mode.puzzle == null) {
-            update { it.submit() }
-            return
-        }
-        // Checking whether a puzzle answer is mate can take a moment.
-        runInBackground(current) { it.submit() }
+        runInBackground(current) { session, _ -> session.submit() }
+    }
+
+    /** Searches every turn; this can take a while, and Undo or leaving the game cancels it. */
+    fun claimNoLegalTurn() {
+        val current = session ?: return
+        runInBackground(current) { session, stop -> session.claimNoLegalTurn(stop) }
     }
 
     fun showSolution() = update { it.showSolution() }
@@ -92,7 +95,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val previous = session
         session = next
         recordSolved(previous, next)
-        if (next.isComputerTurn) runInBackground(next) { it.applyComputerTurn(ComputerPlayer().chooseTurn(it.state)) }
+        if (next.isComputerTurn) {
+            runInBackground(next) { session, stop -> session.applyComputerTurn(ComputerPlayer().chooseTurn(session.state, stop)) }
+        }
     }
 
     private fun recordSolved(previous: GameSession?, next: GameSession) {
@@ -103,11 +108,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit { putStringSet(KEY_SOLVED, solvedPuzzles) }
     }
 
-    private fun runInBackground(from: GameSession, action: (GameSession) -> GameSession) {
+    /** Runs [action] off the main thread; its stop callback turns true once the job is cancelled. */
+    private fun runInBackground(from: GameSession, action: (GameSession, () -> Boolean) -> GameSession) {
         stopJob()
         thinking = true
         job = viewModelScope.launch {
-            val next = withContext(Dispatchers.Default) { action(from) }
+            val next = withContext(Dispatchers.Default) {
+                val job = coroutineContext.job
+                action(from) { !job.isActive }
+            }
             // Ignore the result if the player undid or left the game meanwhile.
             if (session === from) {
                 thinking = false
