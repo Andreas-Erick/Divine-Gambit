@@ -145,7 +145,7 @@ private fun Waiting(text: String) {
 }
 
 @Composable
-private fun OnlinePage(onBack: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
+internal fun OnlinePage(onBack: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
     Box(modifier.fillMaxSize().background(Palette.background)) {
         Column(
             Modifier

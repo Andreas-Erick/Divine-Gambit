@@ -21,13 +21,38 @@ class ComputerPlayer(
     private class Candidate(val moves: List<Move>, val after: GameState, val score: Double)
 
     /**
-     * Moves for the side to move in [state], or null if it found no legal turn (there may be none).
-     * [stop] cancels a long search; the result is then meaningless.
+     * A legal turn for the side to move, as this player sees it: [score] is how good the position
+     * is for the mover after the opponent's best reply among those looked at, and [mates] whether
+     * the turn checkmates.
      */
-    fun chooseTurn(state: GameState, stop: () -> Boolean = { false }): List<Move>? {
+    class RankedTurn(val moves: List<Move>, val score: Double, val mates: Boolean)
+
+    /**
+     * Up to [size] of the most promising legal turns for the side to move in [state], best first,
+     * for someone else (a language model) to choose from: any checkmates first, then the rest by
+     * [RankedTurn.score]. Empty if no legal turn was found.
+     */
+    fun shortlist(state: GameState, size: Int, stop: () -> Boolean = { false }): List<RankedTurn> {
         val me = state.sideToMove
         val deadline = System.nanoTime() + thinkMillis * 1_000_000
         val late = { stop() || System.nanoTime() > deadline }
+        val found = collect(state, late)
+        if (found.isEmpty()) {
+            val fallback = TurnSearch(FALLBACK_BUDGET, stop = stop).findLegalTurn(state) as? TurnSearchResult.Found ?: return emptyList()
+            return listOf(RankedTurn(fallback.result.turnMoves, 0.0, mates = false))
+        }
+        val ranked = found.sortedByDescending { it.score }.take(maxOf(size, deepened)).map { candidate ->
+            val branches = candidate.after.timelines.size - state.timelines.size
+            val mates = candidate.after.threats().isNotEmpty() && !late() && isMated(candidate.after, MATE_BUDGET, late)
+            val score = if (mates) MATE else if (late()) candidate.score else worstReply(candidate.after, me, late) - BRANCH_COST * branches
+            RankedTurn(candidate.moves, score, mates)
+        }
+        return ranked.sortedWith(compareByDescending<RankedTurn> { it.mates }.thenByDescending { it.score }).take(size)
+    }
+
+    /** Up to [candidates] legal turns for the side to move, each scored by the position it leads to. */
+    private fun collect(state: GameState, late: () -> Boolean): List<Candidate> {
+        val me = state.sideToMove
         val found = ArrayList<Candidate>()
         try {
             TurnWalker(nodeBudget, maxOptionalMoves = 1, order = ::ordered, stop = late).walk(state) { turn ->
@@ -39,6 +64,18 @@ class ComputerPlayer(
         } catch (_: BudgetExceeded) {
             // Work with the turns found so far.
         }
+        return found
+    }
+
+    /**
+     * Moves for the side to move in [state], or null if it found no legal turn (there may be none).
+     * [stop] cancels a long search; the result is then meaningless.
+     */
+    fun chooseTurn(state: GameState, stop: () -> Boolean = { false }): List<Move>? {
+        val me = state.sideToMove
+        val deadline = System.nanoTime() + thinkMillis * 1_000_000
+        val late = { stop() || System.nanoTime() > deadline }
+        val found = collect(state, late)
         if (found.isEmpty()) {
             // Nothing within the budget: look much harder for any legal turn at all.
             val fallback = TurnSearch(FALLBACK_BUDGET, stop = stop).findLegalTurn(state)

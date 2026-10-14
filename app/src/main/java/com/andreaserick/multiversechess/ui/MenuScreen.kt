@@ -81,6 +81,8 @@ fun MenuScreen(
     resumableOnline: Ticket?,
     onContinueOnline: () -> Unit,
     playerName: String,
+    aiName: String?,
+    onAiSettings: () -> Unit,
     onInvite: (Variant, Int?, Side, String) -> Unit,
     onJoin: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -90,6 +92,10 @@ fun MenuScreen(
     var variant by rememberSaveable { mutableStateOf(Variant.STANDARD) }
     var timelineLimit by rememberSaveable { mutableStateOf<Int?>(GameSession.DEFAULT_TIMELINE_LIMIT) }
     var showLimits by remember { mutableStateOf(false) }
+    var showOpponents by remember { mutableStateOf(false) }
+    // Play the AI, if one is set up and was chosen.
+    var preferAi by rememberSaveable { mutableStateOf(true) }
+    val againstAi = preferAi && aiName != null
     var showInvite by remember { mutableStateOf(false) }
     var showJoin by remember { mutableStateOf(false) }
 
@@ -150,13 +156,27 @@ fun MenuScreen(
                         Spacer(Modifier.width(12.dp))
                         SecondaryPill(onClick = { showLimits = true }) { Text(limitLabel(timelineLimit)) }
                     }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Opponent", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                if (againstAi) "A language model, choosing among legal turns." else "The built-in computer.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Palette.inkSoft,
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        SecondaryPill(onClick = { showOpponents = true }, modifier = Modifier.widthIn(max = 170.dp)) {
+                            Text(if (againstAi) aiName.orEmpty() else "Computer", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                    }
                     Spacer(Modifier.height(2.dp))
                     PrimaryPill(
-                        onClick = { onStart(GameMode(computerSide = Side.BLACK, variant = variant, timelineLimit = timelineLimit)) },
+                        onClick = { onStart(GameMode(computerSide = Side.BLACK, variant = variant, timelineLimit = timelineLimit, aiOpponent = againstAi)) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Play as White") }
                     PrimaryPill(
-                        onClick = { onStart(GameMode(computerSide = Side.WHITE, variant = variant, timelineLimit = timelineLimit)) },
+                        onClick = { onStart(GameMode(computerSide = Side.WHITE, variant = variant, timelineLimit = timelineLimit, aiOpponent = againstAi)) },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Play as Black") }
                     SecondaryPill(onClick = { onStart(GameMode(variant = variant, timelineLimit = timelineLimit)) }, modifier = Modifier.fillMaxWidth()) {
@@ -190,8 +210,9 @@ fun MenuScreen(
                         Spacer(Modifier.weight(1f))
                         Text(puzzleProgress, color = Palette.inkSoft)
                     }
-                    TextButton(onClick = { showRules = true }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                        Text("How to play")
+                    Row(Modifier.align(Alignment.CenterHorizontally)) {
+                        TextButton(onClick = { showRules = true }) { Text("How to play") }
+                        TextButton(onClick = onAiSettings) { Text("AI opponent") }
                     }
                 }
             }
@@ -199,6 +220,21 @@ fun MenuScreen(
     }
 
     if (showRules) RulesDialog(onDismiss = { showRules = false })
+    if (showOpponents) {
+        OpponentDialog(
+            aiName = aiName,
+            againstAi = againstAi,
+            onChoose = { ai ->
+                preferAi = ai
+                showOpponents = false
+            },
+            onSetUp = {
+                showOpponents = false
+                onAiSettings()
+            },
+            onDismiss = { showOpponents = false },
+        )
+    }
     if (showInvite) {
         InviteDialog(
             variant = variant,
@@ -371,9 +407,49 @@ private fun JoinDialog(onJoin: (String) -> Unit, onDismiss: () -> Unit) {
     )
 }
 
+/** Playing the built-in computer, or the language model set up in AI settings ([aiName], if any). */
+@Composable
+private fun OpponentDialog(aiName: String?, againstAi: Boolean, onChoose: (Boolean) -> Unit, onSetUp: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        title = { Text("Opponent") },
+        text = {
+            Column {
+                val options = listOfNotNull(
+                    Triple(false, "Computer", "The built-in engine: looks two turns ahead, plays solidly."),
+                    aiName?.let { Triple(true, it, "A language model, set up in AI opponent. Chooses among the engine's legal turns, and talks.") },
+                )
+                for ((ai, label, detail) in options) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .selectable(ai == againstAi, role = Role.RadioButton, onClick = { onChoose(ai) })
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = ai == againstAi, onClick = null)
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(label, style = MaterialTheme.typography.titleSmall)
+                            Text(detail, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+                        }
+                    }
+                }
+                TextButton(onClick = onSetUp) { Text(if (aiName == null) "Set up an AI opponent…" else "AI opponent settings…") }
+            }
+        },
+    )
+}
+
 /** E.g. "vs computer · Standard · turn 12 · 3 timelines". */
 private fun resumeSummary(game: GameSession): String {
-    val parts = mutableListOf(if (game.mode.computerSide != null) "vs computer" else "Pass and play")
+    val parts = mutableListOf(
+        when {
+            game.mode.computerSide == null -> "Pass and play"
+            game.mode.aiOpponent -> "vs AI"
+            else -> "vs computer"
+        },
+    )
     parts += game.mode.variant.displayName
     parts += "turn ${Notation.turnNumber(game.state.present)}"
     if (game.state.timelines.size > 1) parts += "${game.state.timelines.size} timelines"
@@ -575,6 +651,12 @@ private val RULES = listOf(
         "way to move the present without leaving a king attacked you are checkmated, or " +
         "stalemated if no king is threatened. After the game you can still try the loser's " +
         "moves to see why.",
+    "AI opponent" to
+        "In AI opponent (below the menu) you can connect a language model: Gemini with your API key, " +
+        "a model on your computer (LM Studio or Ollama), or one downloaded to this phone. Choose it " +
+        "as your Opponent to play it: it picks one of the legal turns the engine finds and says " +
+        "something about it. Under Puzzles it can also design puzzles; the engine checks each one " +
+        "really is mate in one turn, and makes one itself if the AI's don't work out.",
     "Playing a friend" to
         "Invite a friend gives you a link to send. When your friend opens it on their phone and " +
         "gives their name, the game begins; without the app, the link shows a code they can type " +

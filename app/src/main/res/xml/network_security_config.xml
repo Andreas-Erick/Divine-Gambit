@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Plain HTTP is allowed so the app can reach a language model served from a computer on the local
+     network (LM Studio and Ollama serve HTTP). Everything the app itself talks to, the relay and
+     Gemini, uses HTTPS. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

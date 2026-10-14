@@ -34,8 +34,8 @@ android {
         applicationId = "com.andreaserick.multiversechess"
         minSdk = 24
         targetSdk = 37
-        versionCode = 4
-        versionName = "1.1.0"
+        versionCode = 5
+        versionName = "1.2.0"
         relay(relayUrl)
     }
 
@@ -67,6 +67,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    packaging {
+        // The on-device model runtime's native libraries are large: keep them compressed in the APK.
+        jniLibs.useLegacyPackaging = true
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -88,5 +93,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.okhttp)
+    // Runs language models on the phone (arm64 and x86_64 only).
+    implementation(libs.litertlm)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

@@ -9,6 +9,17 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.andreaserick.multiversechess.ai.AiException
+import com.andreaserick.multiversechess.ai.AiGames
+import com.andreaserick.multiversechess.ai.AiSettings
+import com.andreaserick.multiversechess.ai.AiStore
+import com.andreaserick.multiversechess.ai.ChatMessage
+import com.andreaserick.multiversechess.ai.DeviceModel
+import com.andreaserick.multiversechess.ai.DeviceModels
+import com.andreaserick.multiversechess.ai.GeminiModel
+import com.andreaserick.multiversechess.ai.LanguageModel
+import com.andreaserick.multiversechess.ai.OnDeviceModel
+import com.andreaserick.multiversechess.ai.ServerModel
 import com.andreaserick.multiversechess.engine.ComputerPlayer
 import com.andreaserick.multiversechess.engine.GameMode
 import com.andreaserick.multiversechess.engine.GameSession
@@ -132,7 +143,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun startGame(mode: GameMode) = show(GameSession(mode))
+    fun startGame(mode: GameMode) {
+        aiRemark = null
+        show(GameSession(mode))
+    }
 
     fun continueGame() {
         resumable?.let { show(it) }
@@ -158,6 +172,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun back() {
         stopJob()
+        if (showingAiSettings) {
+            showingAiSettings = false
+            return
+        }
         if (connecting != null) {
             connectJob?.cancel()
             connecting = null
@@ -171,6 +189,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             showingPuzzles = false
             generateJob?.cancel()
             generating = false
+            designJob?.cancel()
+            designing = null
         }
         leaveGame()
     }
@@ -184,6 +204,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         leaveOnline()
         session = null
+        aiRemark = null
     }
 
     fun tap(pos: Pos) = update { it.tap(pos) }
@@ -240,7 +261,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         recordSolved(previous, next)
         save(next)
         if (next.isComputerTurn) {
-            runInBackground(next) { session, stop -> session.applyComputerTurn(ComputerPlayer().chooseTurn(session.state, stop)) }
+            val model = if (next.mode.aiOpponent) aiModel else null
+            if (model != null) {
+                runAiTurn(next, model)
+            } else {
+                runInBackground(next) { session, stop -> session.applyComputerTurn(ComputerPlayer().chooseTurn(session.state, stop)) }
+            }
+        }
+    }
+
+    /** The AI chooses the computer's turn; it can take a while, and Undo or leaving the game abandons it. */
+    private fun runAiTurn(from: GameSession, model: LanguageModel) {
+        stopJob()
+        thinking = true
+        job = viewModelScope.launch {
+            val turn = AiGames.turn(model, from.state)
+            val next = withContext(Dispatchers.Default) { from.applyComputerTurn(turn.moves) }
+            if (session === from) {
+                thinking = false
+                aiRemark = turn.remark?.let { "${model.name}: \u201c$it\u201d" }
+                show(if (turn.fallback != null) next.copy(message = turn.fallback) else next)
+            }
         }
     }
 
@@ -284,6 +325,163 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         job?.cancel()
         job = null
         thinking = false
+    }
+
+    // AI: a language model to play against, and to design puzzles.
+
+    private val aiStore = AiStore(application)
+
+    /** The player's AI choice. */
+    var aiSettings by mutableStateOf(aiStore.load())
+        private set
+
+    /** The language model to use, if one is set up. */
+    val aiModel: LanguageModel? get() = aiStore.model(aiSettings)
+
+    /** What the AI said with its last turn, shown under the status. */
+    var aiRemark by mutableStateOf<String?>(null)
+        private set
+
+    var showingAiSettings by mutableStateOf(false)
+        private set
+
+    fun openAiSettings() {
+        showingAiSettings = true
+    }
+
+    fun saveAiSettings(settings: AiSettings) {
+        if (settings.deviceModel != aiSettings.deviceModel || settings.provider != aiSettings.provider) {
+            viewModelScope.launch { OnDeviceModel.release() }
+        }
+        aiSettings = settings
+        aiStore.save(settings)
+    }
+
+    /** The answer to a short test message, or what went wrong; null while waiting. */
+    var aiTest by mutableStateOf<Result<String>?>(null)
+        private set
+    private var aiTestJob: Job? = null
+
+    /** Sends [settings]' model a short message, to check it works. */
+    fun testAi(settings: AiSettings) {
+        val model = aiStore.model(settings) ?: return
+        aiTestJob?.cancel()
+        aiTest = null
+        aiTestJob = viewModelScope.launch {
+            aiTest = try {
+                Result.success(model.chat("You are a friendly chess player. Answer in one short sentence.", listOf(ChatMessage(false, "Say hello to your opponent."))))
+            } catch (e: AiException) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    fun clearAiTest() {
+        aiTestJob?.cancel()
+        aiTest = null
+    }
+
+    /** Models offered by the Gemini API or a server, for the settings; or why they couldn't be listed. */
+    var aiModels by mutableStateOf<Result<List<String>>?>(null)
+        private set
+
+    fun listAiModels(settings: AiSettings) {
+        aiModels = null
+        viewModelScope.launch {
+            aiModels = try {
+                Result.success(
+                    when (settings.provider) {
+                        com.andreaserick.multiversechess.ai.AiProvider.GEMINI -> GeminiModel.models(settings.geminiKey)
+                        else -> ServerModel.models(settings.serverUrl, settings.serverKey.ifBlank { null })
+                    },
+                )
+            } catch (e: AiException) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    /** On-device models downloaded (by file name). */
+    var installedModels by mutableStateOf(installed())
+        private set
+
+    private fun installed(): Set<String> = aiStore.modelsDir.listFiles { file -> file.name.endsWith(".litertlm") }?.map { it.name }?.toSet().orEmpty()
+
+    /** Downloads in progress: bytes so far (null while checking the file), by file name. */
+    var downloads by mutableStateOf<Map<String, Long?>>(emptyMap())
+        private set
+
+    /** Why a download failed, by file name. */
+    var downloadErrors by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+    private val downloadJobs = HashMap<String, Job>()
+
+    fun download(model: DeviceModel) {
+        if (model.file in downloads) return
+        downloads = downloads + (model.file to 0L)
+        downloadErrors = downloadErrors - model.file
+        downloadJobs[model.file] = viewModelScope.launch {
+            try {
+                DeviceModels.download(model, aiStore.modelsDir) { done ->
+                    viewModelScope.launch { if (model.file in downloads) downloads = downloads + (model.file to done) }
+                }
+                installedModels = installed()
+                // A first model downloaded is the one to use.
+                if (aiSettings.deviceModel.isBlank()) saveAiSettings(aiSettings.copy(deviceModel = model.file))
+            } catch (e: IOException) {
+                downloadErrors = downloadErrors + (model.file to (e.message ?: "The download failed."))
+            } finally {
+                downloads = downloads - model.file
+                downloadJobs -= model.file
+            }
+        }
+    }
+
+    fun cancelDownload(model: DeviceModel) {
+        downloadJobs[model.file]?.cancel()
+    }
+
+    fun deleteModel(model: DeviceModel) {
+        viewModelScope.launch {
+            OnDeviceModel.release()
+            withContext(Dispatchers.IO) {
+                File(aiStore.modelsDir, model.file).delete()
+                File(aiStore.modelsDir, model.file + ".part").delete()
+            }
+            installedModels = installed()
+            if (aiSettings.deviceModel == model.file) saveAiSettings(aiSettings.copy(deviceModel = installedModels.firstOrNull().orEmpty()))
+        }
+    }
+
+    /** What designing an AI puzzle is doing now; null when not designing. */
+    var designing by mutableStateOf<String?>(null)
+        private set
+
+    /** Why the last AI puzzle couldn't be made. */
+    var designFailed by mutableStateOf<String?>(null)
+        private set
+    private var designJob: Job? = null
+
+    /** Has the AI design a puzzle, optionally on a [theme]; it's kept with the generated ones, and opened. */
+    fun designPuzzle(theme: String?) {
+        val model = aiModel ?: return
+        if (designing != null) return
+        designFailed = null
+        designing = "${model.name} is designing a puzzle…"
+        designJob = viewModelScope.launch {
+            try {
+                val puzzle = AiGames.designPuzzle(model, generatedPuzzles.size + 1, theme) { designing = it }
+                generatedPuzzles = generatedPuzzles + puzzle
+                val all = generatedPuzzles
+                launch(saving) { runCatching { puzzleFile.writeText(PuzzleCodec.encodeAll(all)) } }
+                designing = null
+                startPuzzle(puzzle)
+            } catch (e: AiException) {
+                designFailed = e.message
+            } finally {
+                designing = null
+            }
+        }
     }
 
     // Online games. Each is a list of events kept by the relay (see relay/); both players' apps
