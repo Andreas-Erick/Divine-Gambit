@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -68,6 +69,7 @@ fun GameScreen(
     onUndo: () -> Unit,
     onResign: () -> Unit,
     onShowSolution: () -> Unit,
+    onRestartPuzzle: () -> Unit,
     onClaimNoLegalTurn: () -> Unit,
     onStartPuzzle: (Puzzle) -> Unit,
     onExit: () -> Unit,
@@ -160,6 +162,10 @@ fun GameScreen(
                     color = Palette.inkSoft,
                 )
             }
+            if (puzzle != null) {
+                RoundIconButton(Icons.Filled.Refresh, "Restart puzzle", onRestartPuzzle, enabled = !thinking)
+                Spacer(Modifier.width(8.dp))
+            }
             RoundIconButton(Icons.Filled.Info, "How to play", { showRules = true })
             Spacer(Modifier.width(8.dp))
             Box {
@@ -167,6 +173,11 @@ fun GameScreen(
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     if (puzzle != null) {
                         DropdownMenuItem(text = { Text("Hint") }, onClick = { showMenu = false; showHint = true })
+                        DropdownMenuItem(
+                            text = { Text("Restart puzzle") },
+                            enabled = !thinking,
+                            onClick = { showMenu = false; onRestartPuzzle() },
+                        )
                         DropdownMenuItem(
                             text = { Text("Show solution") },
                             enabled = ongoing && !thinking,

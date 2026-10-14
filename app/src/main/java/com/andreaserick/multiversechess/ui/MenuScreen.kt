@@ -22,7 +22,18 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -40,6 +51,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -335,9 +347,64 @@ fun RulesDialog(onDismiss: () -> Unit) {
                         Text(body, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
+                Text("Buttons", style = MaterialTheme.typography.titleSmall, color = Palette.amethyst)
+                for (button in BUTTONS) ButtonHelpRow(button)
             }
         },
     )
+}
+
+/** One button explained in How to play: an [icon], or a pill reading [pill]. */
+private class ButtonHelp(val name: String, val text: String, val icon: ImageVector? = null, val pill: String? = null)
+
+private val BUTTONS = listOf(
+    ButtonHelp("Back", "Leave the game; it's saved, and Continue game in the menu picks it up again.", icon = Icons.AutoMirrored.Filled.ArrowBack),
+    ButtonHelp("How to play", "Opens these rules.", icon = Icons.Filled.Info),
+    ButtonHelp(
+        "More",
+        "In a game: the move list, No legal turn? (searches every turn when you think you're stuck) and " +
+            "Resign. In a puzzle: a hint, restarting it, and showing the solution.",
+        icon = Icons.Filled.MoreVert,
+    ),
+    ButtonHelp("Restart puzzle", "Puts the puzzle back to its start. Undo takes you back to where you were.", icon = Icons.Filled.Refresh),
+    ButtonHelp("Overview", "Zooms out to show the whole multiverse.", icon = OverviewIcon),
+    ButtonHelp("History view", "Shows only the selected piece's timeline through time, without your opponent's boards.", icon = HistoryIcon),
+    ButtonHelp("Parallel view", "Shows only the selected piece's moment, across every timeline.", icon = ParallelIcon),
+    ButtonHelp("Undo", "Takes back your last move. Against the computer, it also takes back its reply.", pill = "Undo"),
+    ButtonHelp("Present", "Brings you back to the boards you have to play.", pill = "Present"),
+    ButtonHelp("Submit", "Ends your turn once every board in the present has been played.", pill = "Submit"),
+)
+
+@Composable
+private fun ButtonHelpRow(button: ButtonHelp) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(72.dp), contentAlignment = Alignment.Center) {
+            if (button.icon != null) {
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .background(Palette.card, CircleShape)
+                        .border(1.dp, Palette.presentEdge, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(button.icon, contentDescription = null, tint = Palette.ink, modifier = Modifier.size(20.dp))
+                }
+            } else {
+                Text(
+                    button.pill.orEmpty(),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier
+                        .border(1.dp, Palette.ink.copy(alpha = 0.7f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(button.name, style = MaterialTheme.typography.labelLarge)
+            Text(button.text, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+        }
+    }
 }
 
 private val RULES = listOf(

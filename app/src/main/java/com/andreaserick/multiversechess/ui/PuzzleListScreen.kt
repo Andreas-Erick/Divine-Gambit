@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -37,11 +38,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.Puzzle
+import com.andreaserick.multiversechess.engine.Puzzles
 
 @Composable
 fun PuzzleListScreen(
     puzzles: List<Puzzle>,
     solved: Set<String>,
+    canGenerate: Boolean,
+    generating: Boolean,
+    generateFailed: Boolean,
+    onGenerate: () -> Unit,
     onOpen: (Puzzle) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -59,7 +65,7 @@ fun PuzzleListScreen(
                     Spacer(Modifier.size(20.dp))
                     Text("Puzzles", style = MaterialTheme.typography.headlineLarge)
                     Text(
-                        "White to move and checkmate in one turn. Pieces can strike through time and across timelines.",
+                        "Checkmate in one turn. Pieces can strike through time and across timelines.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Palette.inkSoft,
                     )
@@ -80,7 +86,44 @@ fun PuzzleListScreen(
             itemsIndexed(puzzles, key = { _, p -> p.id }) { i, puzzle ->
                 PuzzleCard(i + 1, puzzle, puzzle.id in solved, onClick = { onOpen(puzzle) })
             }
+            item {
+                GenerateCard(
+                    builtInLeft = Puzzles.all.count { it.id !in solved },
+                    canGenerate = canGenerate,
+                    generating = generating,
+                    failed = generateFailed,
+                    onGenerate = onGenerate,
+                )
+            }
             item { Spacer(Modifier.navigationBarsPadding()) }
+        }
+    }
+}
+
+/** Makes a new puzzle, once every built-in one is solved. */
+@Composable
+private fun GenerateCard(builtInLeft: Int, canGenerate: Boolean, generating: Boolean, failed: Boolean, onGenerate: () -> Unit) {
+    SlabCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("New puzzles", style = MaterialTheme.typography.titleMedium)
+            Text(
+                when {
+                    !canGenerate -> "Solve the ${if (builtInLeft == 1) "last puzzle" else "$builtInLeft remaining puzzles"} above to unlock new ones, made for you on this phone."
+                    failed -> "No puzzle turned up this time. Try again."
+                    else -> "Make a fresh checkmate-in-one-turn puzzle. Every one is checked to have one or two solutions."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = Palette.inkSoft,
+            )
+            PrimaryPill(onClick = onGenerate, enabled = canGenerate && !generating, modifier = Modifier.fillMaxWidth()) {
+                if (generating) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Making a puzzle…")
+                } else {
+                    Text("Generate a puzzle")
+                }
+            }
         }
     }
 }
