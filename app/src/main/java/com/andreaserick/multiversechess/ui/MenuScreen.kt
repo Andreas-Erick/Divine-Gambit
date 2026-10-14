@@ -398,7 +398,7 @@ private fun LimitDialog(selected: Int?, onSelect: (Int?) -> Unit, onDismiss: () 
                             Text(limitLabel(option), style = MaterialTheme.typography.titleSmall)
                             Text(
                                 when {
-                                    option == null -> "As in 5D chess. In huge games the game may not recognise checkmate."
+                                    option == null -> "Branch as often as you like. In huge games the game may not recognise checkmate."
                                     option == GameSession.DEFAULT_TIMELINE_LIMIT -> "Recommended. Checkmate is reliably recognised."
                                     option < GameSession.DEFAULT_TIMELINE_LIMIT -> "Smaller, quicker games."
                                     else -> "Bigger games; checkmate is nearly always recognised."
