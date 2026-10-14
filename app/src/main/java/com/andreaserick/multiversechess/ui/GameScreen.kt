@@ -66,6 +66,10 @@ fun GameScreen(
     session: GameSession,
     thinking: Boolean,
     online: OnlineStatus?,
+    /** The language model playing the computer's side, if it's one. */
+    aiName: String?,
+    /** What it said with its last turn. */
+    aiRemark: String?,
     nextPuzzle: Puzzle?,
     onTap: (Pos) -> Unit,
     onSubmit: () -> Unit,
@@ -161,7 +165,7 @@ fun GameScreen(
                     when {
                         puzzle != null -> "Puzzle · checkmate in one turn"
                         online != null -> "Online · ${online.nameOf(online.ticket.side)} vs ${online.opponentName}"
-                        session.mode.computerSide != null -> "vs computer"
+                        session.mode.computerSide != null -> "vs ${aiName ?: "computer"}"
                         else -> "Pass and play"
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -245,8 +249,11 @@ fun GameScreen(
         ) {
             SlabCard(Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatusLine(session, thinking || sending, online)
+                    StatusLine(session, thinking || sending, online, aiName)
                     online?.let { OnlineNote(it, session) }
+                    aiRemark?.let {
+                        Text(it, style = MaterialTheme.typography.bodyMedium, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = Palette.ink)
+                    }
                     AnimatedVisibility(session.message != null) {
                         Text(
                             session.message.orEmpty(),
@@ -373,7 +380,7 @@ fun GameScreen(
 }
 
 @Composable
-private fun StatusLine(session: GameSession, thinking: Boolean, online: OnlineStatus?) {
+private fun StatusLine(session: GameSession, thinking: Boolean, online: OnlineStatus?, aiName: String?) {
     val state = session.state
     val side = state.sideToMove
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -384,7 +391,7 @@ private fun StatusLine(session: GameSession, thinking: Boolean, online: OnlineSt
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(headline(session, thinking, online), style = MaterialTheme.typography.titleMedium)
+            Text(headline(session, thinking, online, aiName), style = MaterialTheme.typography.titleMedium)
             Text(detail(session, online.names()), style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
         }
         if (session.outcome == Outcome.Ongoing && state.threats().isNotEmpty()) {
@@ -414,7 +421,7 @@ private fun OnlineNote(online: OnlineStatus, session: GameSession) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = if (problem) MaterialTheme.colorScheme.error else Palette.inkSoft)
 }
 
-private fun headline(session: GameSession, thinking: Boolean, online: OnlineStatus?): String {
+private fun headline(session: GameSession, thinking: Boolean, online: OnlineStatus?, aiName: String?): String {
     if (session.outcome != Outcome.Ongoing) return outcomeTitle(session.outcome)
     val side = session.state.sideToMove.displayName
     return when {
@@ -423,7 +430,7 @@ private fun headline(session: GameSession, thinking: Boolean, online: OnlineStat
         session.isRemoteTurn -> "${online?.opponentName ?: "Your friend"}'s turn · $side"
         thinking && session.mode.puzzle != null -> "Checking your answer…"
         thinking && !session.isComputerTurn -> "Checking the position…"
-        thinking -> "$side is thinking…"
+        thinking -> "${aiName ?: side} is thinking…"
         online != null || (session.mode.computerSide != null && session.mode.computerSide != session.state.sideToMove) -> "Your turn · $side"
         else -> "$side to move"
     }

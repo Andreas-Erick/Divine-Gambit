@@ -16,6 +16,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.andreaserick.multiversechess.ui.AiSettingsScreen
+import com.andreaserick.multiversechess.ui.AiSettingsState
 import com.andreaserick.multiversechess.ui.ConnectingScreen
 import com.andreaserick.multiversechess.ui.GameScreen
 import com.andreaserick.multiversechess.ui.InvitationScreen
@@ -61,6 +63,7 @@ fun MultiverseChessApp(modifier: Modifier = Modifier, viewModel: GameViewModel =
     val session = viewModel.session
     val online = viewModel.online
     val screen = when {
+        viewModel.showingAiSettings -> Screen.AI_SETTINGS
         viewModel.connecting != null -> Screen.CONNECTING
         viewModel.invitation != null -> Screen.INVITATION
         online != null && !online.opponentJoined && online.problem == null -> Screen.LOBBY
@@ -73,7 +76,7 @@ fun MultiverseChessApp(modifier: Modifier = Modifier, viewModel: GameViewModel =
     }
 }
 
-private enum class Screen { MENU, PUZZLES, GAME, LOBBY, CONNECTING, INVITATION }
+private enum class Screen { MENU, PUZZLES, GAME, LOBBY, CONNECTING, INVITATION, AI_SETTINGS }
 
 @Composable
 private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier) {
@@ -87,6 +90,8 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                 session = session,
                 thinking = viewModel.thinking,
                 online = viewModel.online,
+                aiName = viewModel.aiModel?.name?.takeIf { session.mode.aiOpponent },
+                aiRemark = viewModel.aiRemark,
                 nextPuzzle = viewModel.nextPuzzle,
                 onTap = viewModel::tap,
                 onSubmit = viewModel::submit,
@@ -108,6 +113,11 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                 canGenerate = viewModel.canGenerate,
                 generating = viewModel.generating,
                 generateFailed = viewModel.generateFailed,
+                aiName = viewModel.aiModel?.name,
+                designing = viewModel.designing,
+                designFailed = viewModel.designFailed,
+                onDesign = viewModel::designPuzzle,
+                onAiSettings = viewModel::openAiSettings,
                 onGenerate = viewModel::generatePuzzle,
                 onOpen = viewModel::startPuzzle,
                 onBack = viewModel::back,
@@ -124,6 +134,8 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
             resumableOnline = viewModel.resumableOnline,
             onContinueOnline = viewModel::continueOnline,
             playerName = viewModel.playerName,
+            aiName = viewModel.aiModel?.name,
+            onAiSettings = viewModel::openAiSettings,
             onInvite = viewModel::inviteFriend,
             onJoin = viewModel::joinFriend,
             modifier = modifier,
@@ -132,6 +144,30 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
             val online = viewModel.online ?: return
             BackHandler { viewModel.back() }
             LobbyScreen(online, onBack = viewModel::back, modifier = modifier)
+        }
+        Screen.AI_SETTINGS -> {
+            BackHandler { viewModel.back() }
+            AiSettingsScreen(
+                AiSettingsState(
+                    settings = viewModel.aiSettings,
+                    onChange = { settings ->
+                        viewModel.clearAiTest()
+                        viewModel.saveAiSettings(settings)
+                    },
+                    test = viewModel.aiTest,
+                    onTest = { viewModel.testAi(viewModel.aiSettings) },
+                    models = viewModel.aiModels,
+                    onListModels = { viewModel.listAiModels(viewModel.aiSettings) },
+                    installed = viewModel.installedModels,
+                    downloads = viewModel.downloads,
+                    downloadErrors = viewModel.downloadErrors,
+                    onDownload = viewModel::download,
+                    onCancelDownload = viewModel::cancelDownload,
+                    onDelete = viewModel::deleteModel,
+                ),
+                onBack = viewModel::back,
+                modifier = modifier,
+            )
         }
         Screen.INVITATION -> {
             val invitation = viewModel.invitation ?: return

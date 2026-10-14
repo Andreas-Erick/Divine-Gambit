@@ -22,6 +22,7 @@ game's code or assets.
 * [Installing](#installing)
 * [How to play](#how-to-play)
 * [Playing a friend online](#playing-a-friend-online)
+* [AI opponent](#ai-opponent)
 * [Variants](#variants)
 * [Puzzles](#puzzles)
 * [How the rules are checked](#how-the-rules-are-checked)
@@ -40,13 +41,15 @@ game's code or assets.
   when you still have to move there.
 * **Full four-dimensional movement** for every piece, including castling, en passant, double steps
   across timelines and promotion, plus five fairy-piece variants.
-* **Three ways to play:** against the computer as either side, **pass and play** on one device, or
-  **online with a friend**: send them a link, and the game opens on their phone with both your
-  names on it.
+* **Several ways to play:** against the computer as either side, **pass and play** on one device,
+  **online with a friend** (send them a link, and the game opens on their phone with both your
+  names on it), or against an **AI opponent**: Gemini, a model on your computer, or one running on
+  your phone.
 * **Choose the size of the multiverse:** each player may create up to 1 to 8 timelines, or as many
   as they like.
-* **Six puzzles** that teach the core ideas, each checked by an exhaustive solver, and **new puzzles
-  generated on your phone** once you've solved them all.
+* **Six puzzles** that teach the core ideas, each checked by an exhaustive solver, **new puzzles
+  generated on your phone** once you've solved them all, and **puzzles designed by your AI**, checked
+  the same way.
 * **Nothing gets lost:** your game is saved as you play, **Continue game** picks it up after the app
   is closed, and an online game waits for both of you to come back.
 
@@ -178,6 +181,33 @@ repository). It keeps each game's settings, turns and the two names you gave, an
 kept. Both apps check every move against the rules, so a modified app can't play an illegal move or
 claim a checkmate that isn't one.
 
+## AI opponent
+
+**AI opponent** (at the bottom of the menu) connects a language model, in one of three ways:
+
+| | What you need | Notes |
+| --- | --- | --- |
+| **Gemini** | A free API key from [Google AI Studio](https://aistudio.google.com/apikey). | The app suggests the newest "Flash" model. The key is stored encrypted with a key that never leaves the phone. Positions are sent to Google. |
+| **A model on your computer** | [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com), serving on your network (in LM Studio: Developer › start the server, and turn on *Serve on Local Network*; for Ollama, `OLLAMA_HOST=0.0.0.0`). | Enter the computer's address, e.g. `http://192.168.1.20:1234`, and pick a model. Android asks once to allow access to your local network. |
+| **A model on this phone** | A download: Gemma 4 E2B (2.6 GB, plays and designs best) or Qwen3 0.6B (613 MB, quick but weak). | Runs offline with Google's LiteRT-LM. Needs a 64-bit phone and plenty of free memory. |
+
+Then choose it as the **Opponent** in the menu. The engine finds the most promising legal turns and
+the model picks one of them, with a sentence about it, so it never breaks the rules; whether it
+plays well is up to the model. If it fails to answer, or takes too long, the engine plays its
+favourite turn and says so.
+
+Under **Puzzles**, *Ask … for a puzzle* has the model compose a "White to move and checkmate in one
+turn" puzzle, optionally on a theme you give. It writes the pieces, a short history of turns and its
+solution as text; the engine replays the history and checks that White then has one or two mating
+turns, and if not, tells the model exactly what's wrong (an illegal move and where the piece could
+go, Black's escape from its solution, too many solutions) for up to four attempts. If none works
+out, the engine generates a puzzle and the model names it and writes the hint. Either way, every
+puzzle really is mate in one turn.
+
+In testing, a 14B model on a computer could follow the format but rarely produced a working mate,
+so most of its puzzles were the engine's with its titles and hints; larger models such as Gemini
+are better at it.
+
 ## Variants
 
 Pick a variant in the menu before starting a game. Fairy pieces are drawn as discs with their
@@ -241,6 +271,10 @@ The computer looks two turns ahead: it scores its candidate turns, then checks t
 replies to the most promising ones, takes any checkmate it finds, and avoids turns that allow one.
 It thinks for about two seconds at most.
 
+An AI opponent's turn is checked like any other: the model only chooses a number from a list of
+legal turns (`AiText` and `ComputerPlayer.shortlist`), and puzzles it designs go through
+`PuzzleDrafts`, which replays and solves them before they're kept.
+
 In an online game, each turn is replayed on both phones from the same list of moves, kept in order
 by the relay. The phone that submits a turn judges whether it ends the game, and the other phone
 searches the position again before accepting a checkmate or stalemate.
@@ -276,7 +310,8 @@ tested quickly on the JVM:
 | Path | What it contains |
 | --- | --- |
 | `engine/` | Game rules: multiverse state, move generation, turn search, check and checkmate, computer player, variants, puzzles, session and undo logic, and online game events. Unit-tested. |
-| `app/` | Android app: Compose UI that draws the multiverse, handles navigation and taps, runs the computer on a background thread, and connects online games to the relay. |
+| `app/` | Android app: Compose UI that draws the multiverse, handles navigation and taps, runs the computer on a background thread, connects online games to the relay, and talks to language models (Gemini, LM Studio/Ollama, or LiteRT-LM on the phone). |
+| `docs/icon/` | The script that draws the launcher icon. |
 | `relay/` | Cloudflare Worker that online games meet through: it keeps each game's turns in order and passes them between the two phones. |
 | `docs/screenshots/` | The screenshots in this README. |
 
@@ -294,6 +329,8 @@ tested quickly on the JVM:
 * Pawns always promote to a queen.
 * The computer looks only two turns ahead and judges positions mostly by material, so it's a
   sparring partner rather than a strong player.
+* An AI opponent only chooses among up to ten turns the engine likes; a small model on a phone
+  chooses close to randomly among them, and takes a while to answer.
 * Online, there's no notification when your friend moves while the app is closed: their turn
   shows when you open it. The menu remembers one online game to continue, so joining another
   replaces it.
@@ -301,9 +338,17 @@ tested quickly on the JVM:
 
 ## License
 
-The code is released under the [MIT License](LICENSE). The Lora typeface in
-`app/src/main/res/font/` is under the SIL Open Font License (see
-`app/src/main/assets/licenses/Lora-OFL.txt`).
+The code is released under the [MIT License](LICENSE). Also in the app, with their licenses in
+`app/src/main/assets/licenses/`:
+
+* the Lora typeface (SIL Open Font License);
+* the knight in the launcher icon, from Noto Sans Symbols 2 (SIL Open Font License);
+* Google's [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) runtime for on-device models
+  (Apache License 2.0, with its third-party notices), and [OkHttp](https://square.github.io/okhttp/)
+  (Apache License 2.0).
+
+The on-device models are downloaded from Hugging Face only when you choose to, and come under their
+own license (both on offer are Apache 2.0).
 
 *5D Chess With Multiverse Time Travel* is named here only to say what inspired this project. Its
 name belongs to its developers, who aren't affiliated with this project and haven't endorsed it.
