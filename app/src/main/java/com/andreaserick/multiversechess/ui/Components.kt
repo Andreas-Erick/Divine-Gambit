@@ -31,7 +31,7 @@ import com.andreaserick.multiversechess.engine.Side
 private val PillShape = RoundedCornerShape(50)
 private val PillPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp)
 
-/** The main call to action: a filled amethyst pill. */
+/** The main call to action: a filled teal pill. */
 @Composable
 fun PrimaryPill(
     onClick: () -> Unit,
@@ -46,8 +46,8 @@ fun PrimaryPill(
         shape = PillShape,
         contentPadding = PillPadding,
         colors = ButtonDefaults.buttonColors(
-            containerColor = Palette.amethyst,
-            disabledContainerColor = Palette.amethyst.copy(alpha = 0.22f),
+            containerColor = Palette.accent,
+            disabledContainerColor = Palette.accent.copy(alpha = 0.22f),
             disabledContentColor = Palette.ink.copy(alpha = 0.45f),
         ),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
@@ -55,7 +55,7 @@ fun PrimaryPill(
     )
 }
 
-/** A secondary action: a parchment pill with an ink outline. */
+/** A secondary action: a card-coloured pill with a light outline. */
 @Composable
 fun SecondaryPill(
     onClick: () -> Unit,
@@ -91,7 +91,7 @@ fun RoundIconButton(
     selected: Boolean = false,
 ) {
     val tint = when {
-        selected -> Color.White
+        selected -> Palette.onAccent
         enabled -> Palette.ink
         else -> Palette.ink.copy(alpha = 0.3f)
     }
@@ -100,9 +100,9 @@ fun RoundIconButton(
         enabled = enabled,
         modifier = modifier.size(48.dp).shadow(3.dp, CircleShape),
         shape = CircleShape,
-        color = if (selected) Palette.amethyst else Palette.card,
+        color = if (selected) Palette.accent else Palette.card,
         contentColor = tint,
-        border = BorderStroke(1.dp, if (selected) Palette.amethyst else Palette.presentEdge),
+        border = BorderStroke(1.dp, if (selected) Palette.accent else Palette.presentEdge),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(icon, contentDescription, tint = tint)
@@ -158,12 +158,12 @@ fun SideDisc(side: Side, modifier: Modifier = Modifier, size: Dp = 14.dp) {
     Box(
         modifier
             .size(size)
-            .background(if (side == Side.WHITE) Color.White else Palette.ink, CircleShape)
-            .border(1.5.dp, Palette.ink, CircleShape),
+            .background(if (side == Side.WHITE) Color.White else Palette.pieceDark, CircleShape)
+            .border(1.5.dp, Palette.inkSoft, CircleShape),
     )
 }
 
-/** Parchment card with a flat offset shadow, echoing the boards' slabs. */
+/** A card with a flat offset shadow, echoing the boards' slabs. */
 @Composable
 fun SlabCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Box(modifier) {

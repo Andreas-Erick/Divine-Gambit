@@ -31,8 +31,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) openInvitation(intent)
-        // The app is always light, so system bar icons are always dark.
-        val bars = SystemBarStyle.light(Palette.parchment.copy(alpha = 0f).toArgb(), Palette.ink.copy(alpha = 0.3f).toArgb())
+        // The app is always dark, so system bar icons are always light.
+        val bars = SystemBarStyle.dark(Palette.background.copy(alpha = 0f).toArgb())
         enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
         setContent {
             MultiverseChessTheme {

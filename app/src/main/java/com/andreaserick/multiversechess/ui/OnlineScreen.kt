@@ -138,7 +138,7 @@ fun ticketSummary(ticket: Ticket): String {
 @Composable
 private fun Waiting(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Palette.amethyst)
+        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Palette.accent)
         Spacer(Modifier.width(10.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium)
     }
@@ -146,7 +146,7 @@ private fun Waiting(text: String) {
 
 @Composable
 private fun OnlinePage(onBack: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
-    Box(modifier.fillMaxSize().background(Palette.parchment)) {
+    Box(modifier.fillMaxSize().background(Palette.background)) {
         Column(
             Modifier
                 .fillMaxSize()

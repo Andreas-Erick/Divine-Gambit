@@ -131,7 +131,7 @@ fun GameScreen(
     Box(modifier.fillMaxSize()) {
         MultiverseView(session, camera, onTap, Modifier.fillMaxSize(), slice)
 
-        // Top: back, title and tools, floating over the multiverse on a band of parchment that
+        // Top: back, title and tools, floating over the multiverse on a band of the background that
         // fades out, so boards passing underneath don't run through the title.
         Row(
             Modifier
@@ -139,9 +139,9 @@ fun GameScreen(
                 .onSizeChanged { camera.coveredTop = it.height.toFloat() }
                 .background(
                     Brush.verticalGradient(
-                        0f to Palette.parchment.copy(alpha = 0.97f),
-                        0.7f to Palette.parchment.copy(alpha = 0.88f),
-                        1f to Palette.parchment.copy(alpha = 0f),
+                        0f to Palette.background.copy(alpha = 0.97f),
+                        0.7f to Palette.background.copy(alpha = 0.88f),
+                        1f to Palette.background.copy(alpha = 0f),
                     ),
                 )
                 .statusBarsPadding()
@@ -353,7 +353,7 @@ fun GameScreen(
                     Icon(
                         if (outcome is Outcome.Checkmate) Icons.Filled.Check else Icons.Filled.Close,
                         contentDescription = null,
-                        tint = androidx.compose.ui.graphics.Color.White,
+                        tint = Palette.onGold,
                         modifier = Modifier.size(30.dp),
                     )
                 }
@@ -378,7 +378,7 @@ private fun StatusLine(session: GameSession, thinking: Boolean, online: OnlineSt
     val side = state.sideToMove
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (thinking) {
-            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Palette.amethyst)
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Palette.accent)
         } else {
             SideDisc(side)
         }
@@ -392,7 +392,7 @@ private fun StatusLine(session: GameSession, thinking: Boolean, online: OnlineSt
                 "CHECK",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = androidx.compose.ui.graphics.Color.White,
+                color = Palette.onThreat,
                 modifier = Modifier
                     .background(Palette.threat, RoundedCornerShape(50))
                     .padding(horizontal = 10.dp, vertical = 4.dp),

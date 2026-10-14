@@ -68,6 +68,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
+import kotlin.random.Random
 
 @Composable
 fun MenuScreen(
@@ -107,7 +108,7 @@ fun MenuScreen(
             Text(
                 "C H E S S",
                 style = MaterialTheme.typography.titleLarge,
-                color = Palette.amethyst,
+                color = Palette.accent,
             )
             Spacer(Modifier.height(12.dp))
             Text(
@@ -127,7 +128,7 @@ fun MenuScreen(
                                 Text(
                                     resumeSummary(resumable),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.8f),
+                                    color = Palette.onAccent.copy(alpha = 0.75f),
                                 )
                             }
                         }
@@ -174,15 +175,14 @@ fun MenuScreen(
                                             resumableOnline.displayCode,
                                         ).joinToString(" · "),
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.8f),
+                                        color = Palette.onAccent.copy(alpha = 0.75f),
                                     )
                                 }
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SecondaryPill(onClick = { showInvite = true }, modifier = Modifier.weight(1f)) { Text("Invite a friend", maxLines = 1) }
-                            SecondaryPill(onClick = { showJoin = true }, modifier = Modifier.weight(1f)) { Text("Join a friend", maxLines = 1) }
-                        }
+                        // One per row: side by side, the labels don't fit on narrow phones.
+                        SecondaryPill(onClick = { showInvite = true }, modifier = Modifier.fillMaxWidth()) { Text("Invite a friend") }
+                        SecondaryPill(onClick = { showJoin = true }, modifier = Modifier.fillMaxWidth()) { Text("Join a friend") }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
                     SecondaryPill(onClick = onPuzzles, modifier = Modifier.fillMaxWidth()) {
@@ -243,8 +243,8 @@ fun MenuScreen(
 }
 
 /**
- * A slowly turning checkerboard bent into a logarithmic spiral, receding toward a vanishing
- * point: the board falling through time.
+ * A slowly turning checkerboard bent into a logarithmic spiral, receding toward a glowing
+ * vanishing point among the stars: the board falling through time.
  */
 @Composable
 private fun TimeVortex(modifier: Modifier = Modifier) {
@@ -255,11 +255,20 @@ private fun TimeVortex(modifier: Modifier = Modifier) {
         animationSpec = infiniteRepeatable(tween(90_000, easing = LinearEasing), RepeatMode.Restart),
         label = "turn",
     )
-    val light = Color(0xFFEAE4D8)
-    val dark = Color(0xFFD8CFE3)
+    val night = Palette.background
+    val band = Color(0xFF1D2250)
+    val glow = Palette.accent
     val path = remember { Path() }
+    // Stars, as fractions of the screen: the same sky every time.
+    val stars = remember {
+        val random = Random(5)
+        List(90) { Triple(Offset(random.nextFloat(), random.nextFloat()), 0.6f + random.nextFloat() * 1.4f, 0.25f + random.nextFloat() * 0.6f) }
+    }
     Canvas(modifier) {
-        drawRect(light)
+        drawRect(night)
+        for ((at, radius, alpha) in stars) {
+            drawCircle(Color.White.copy(alpha = alpha), radius.dp.toPx(), Offset(at.x * size.width, at.y * size.height))
+        }
         val center = Offset(size.width * 0.5f, size.height * 0.24f)
         val maxRadius = hypot(size.width, size.height)
         val sectors = 16
@@ -287,18 +296,24 @@ private fun TimeVortex(modifier: Modifier = Modifier) {
                     path.lineTo(p.x, p.y)
                 }
                 path.close()
-                drawPath(path, dark)
+                drawPath(path, band, alpha = 0.85f)
             }
             r = next
             ring++
         }
-        // Mist at the vanishing point, and parchment toward the bottom so the menu stays readable.
-        drawRect(Brush.radialGradient(listOf(light, light.copy(alpha = 0f)), center = center, radius = size.minDimension * 0.16f))
+        // A glow at the vanishing point, and night toward the bottom so the menu stays readable.
+        drawRect(
+            Brush.radialGradient(
+                listOf(glow.copy(alpha = 0.55f), glow.copy(alpha = 0.12f), glow.copy(alpha = 0f)),
+                center = center,
+                radius = size.minDimension * 0.3f,
+            ),
+        )
         drawRect(
             Brush.verticalGradient(
                 0f to Color.Transparent,
-                0.4f to Palette.parchment.copy(alpha = 0.3f),
-                1f to Palette.parchment.copy(alpha = 0.95f),
+                0.4f to Palette.background.copy(alpha = 0.3f),
+                1f to Palette.background.copy(alpha = 0.95f),
             ),
         )
     }
@@ -452,11 +467,13 @@ fun RulesDialog(onDismiss: () -> Unit) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 for ((heading, body) in RULES) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(heading, style = MaterialTheme.typography.titleSmall, color = Palette.amethyst)
+                        Text(heading, style = MaterialTheme.typography.titleSmall, color = Palette.accent)
                         Text(body, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-                Text("Buttons", style = MaterialTheme.typography.titleSmall, color = Palette.amethyst)
+                Text("Reading the boards", style = MaterialTheme.typography.titleSmall, color = Palette.accent)
+                BoardLegend()
+                Text("Buttons", style = MaterialTheme.typography.titleSmall, color = Palette.accent)
                 for (button in BUTTONS) ButtonHelpRow(button)
             }
         },
@@ -518,7 +535,7 @@ private fun ButtonHelpRow(button: ButtonHelp) {
 
 private val RULES = listOf(
     "The multiverse" to
-        "Each row is a timeline (purple ribbon) and each column a half-move, advancing to the right. " +
+        "Each row is a timeline (teal ribbon) and each column a half-move, advancing to the right. " +
         "Drag to pan and pinch to zoom.",
     "Finding your way" to
         "Tap a timeline's ribbon, or its label on the left edge, to see the whole timeline. Tap a " +
@@ -549,7 +566,7 @@ private val RULES = listOf(
         "possible, so they can't attack a king's past either.",
     "Active timelines" to
         "Each player may have only one more active timeline than the opponent. Extra timelines are " +
-        "faded and don't hold back the present. A purple arrow at the end of the present means " +
+        "faded and don't hold back the present. A teal arrow at the end of the present means " +
         "your next new timeline would be active, so branching into the past would pull the " +
         "present back with it.",
     "Check and mate" to
