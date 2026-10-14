@@ -68,6 +68,7 @@ import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.engine.PieceType
 import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Side
+import com.andreaserick.multiversechess.engine.Timeline
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -78,7 +79,10 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
 
-/** World-space layout: timeline `l` is row `l` (negative rows above), half-move `t` is column `t`. */
+/**
+ * World-space layout: timeline `l` is row `l` (negative rows above), half-move `t` is column `t`
+ * (or, in [Columns.history], one column per full turn). Positions take the [Columns] in use.
+ */
 internal object Layout {
     const val SQ = 40f
     const val BOARD = SQ * BOARD_SIZE
@@ -93,21 +97,20 @@ internal object Layout {
     /** Offset of the flat shadow under boards and ribbons. */
     val SLAB = Offset(SQ * 0.26f, SQ * 0.32f)
 
-    fun boardTopLeft(l: Int, t: Int) = Offset(t * COL, l * ROW)
+    fun boardTopLeft(l: Int, t: Int, columns: Columns = Columns.STANDARD) = Offset(columns.x(t), l * ROW)
 
-    fun boardRect(l: Int, t: Int) = Rect(boardTopLeft(l, t), Size(BOARD, BOARD))
-
-    fun boardCenter(l: Int, t: Int) = boardTopLeft(l, t) + Offset(BOARD / 2, BOARD / 2)
+    fun boardRect(l: Int, t: Int, columns: Columns = Columns.STANDARD) = Rect(boardTopLeft(l, t, columns), Size(BOARD, BOARD))
 
     /** White is at the bottom of every board, so rank 8 is the top row. */
-    fun squareTopLeft(p: Pos) = boardTopLeft(p.l, p.t) + Offset(p.x * SQ, (BOARD_SIZE - 1 - p.y) * SQ)
+    fun squareTopLeft(p: Pos, columns: Columns = Columns.STANDARD) =
+        boardTopLeft(p.l, p.t, columns) + Offset(p.x * SQ, (BOARD_SIZE - 1 - p.y) * SQ)
 
-    fun squareCenter(p: Pos) = squareTopLeft(p) + Offset(SQ / 2, SQ / 2)
+    fun squareCenter(p: Pos, columns: Columns = Columns.STANDARD) = squareTopLeft(p, columns) + Offset(SQ / 2, SQ / 2)
 
-    fun hitTest(world: Offset): Pos? {
-        val t = floor(world.x / COL).toInt()
+    fun hitTest(world: Offset, columns: Columns = Columns.STANDARD): Pos? {
+        val t = columns.halfMoveAt(world.x)
         val l = floor(world.y / ROW).toInt()
-        val local = world - boardTopLeft(l, t)
+        val local = world - boardTopLeft(l, t, columns)
         val x = floor(local.x / SQ).toInt()
         val row = floor(local.y / SQ).toInt()
         if (x !in 0 until BOARD_SIZE || row !in 0 until BOARD_SIZE) return null
@@ -119,6 +122,31 @@ internal object Layout {
         val l = floor((world.y + GAP_Y / 2) / ROW).toInt()
         val timeline = state.timelines[l] ?: return null
         return l.takeIf { world.x in timeline.start * COL - GAP_X..timeline.end * COL + BOARD + GAP_X }
+    }
+}
+
+/**
+ * Which column each half-move is drawn in: normally one per half-move, or in History view only the
+ * half-moves of one side, one column per full turn, so the other side's boards leave no gaps.
+ */
+internal class Columns private constructor(private val parity: Int?) {
+    /** Left edge of half-move [t]'s column. In History view, a hidden half-move shares the column before it. */
+    fun x(t: Int): Float = (if (parity == null) t else Math.floorDiv(t - parity, 2)) * Layout.COL
+
+    /** The half-move whose column contains world x-coordinate [x]. */
+    fun halfMoveAt(x: Float): Int {
+        val column = floor(x / Layout.COL).toInt()
+        return if (parity == null) column else parity + 2 * column
+    }
+
+    /** Whether half-move [t] has a column of its own. */
+    fun hasColumn(t: Int): Boolean = parity == null || Math.floorMod(t, 2) == parity
+
+    companion object {
+        val STANDARD = Columns(null)
+
+        /** One column per full turn, for the half-moves with the same side to move as [t]. */
+        fun history(t: Int) = Columns(Math.floorMod(t, 2))
     }
 }
 
@@ -250,6 +278,9 @@ enum class SliceView {
         HISTORY -> l == anchor.l && Math.floorMod(t - anchor.t, 2) == 0
         PARALLEL -> t == anchor.t
     }
+
+    /** History view closes up the gaps the hidden half-moves leave. */
+    internal fun columns(anchor: BoardId): Columns = if (this == HISTORY) Columns.history(anchor.t) else Columns.STANDARD
 }
 
 /** The board a slice view is built around: the selected piece's, or the first one to play. */
@@ -260,7 +291,7 @@ internal fun GameSession.sliceAnchor(): BoardId =
 internal fun GameState.sliceArea(view: SliceView, anchor: BoardId): Rect =
     timelines.values.flatMap { timeline -> (timeline.start..timeline.end).map { timeline.index to it } }
         .filter { (l, t) -> view.shows(anchor, l, t) }
-        .map { (l, t) -> Layout.boardRect(l, t) }
+        .map { (l, t) -> Layout.boardRect(l, t, view.columns(anchor)) }
         .reduce(::union)
 
 /** Every board of [l], from its first to its latest. */
@@ -307,19 +338,23 @@ fun MultiverseView(
                         return@detectTapGestures
                     }
                     val world = camera.toWorld(tap)
-                    val pos = Layout.hitTest(world)
+                    val anchor = currentSession.sliceAnchor()
+                    val columns = currentSlice?.columns(anchor) ?: Columns.STANDARD
+                    val pos = Layout.hitTest(world, columns)
                     // Boards hidden by a slice view can't be played on.
-                    val hidden = pos != null && currentSlice?.shows(currentSession.sliceAnchor(), pos.l, pos.t) == false
+                    val hidden = pos != null && currentSlice?.shows(anchor, pos.l, pos.t) == false
                     if (hidden) return@detectTapGestures
                     if (pos != null && state.boardAt(pos.l, pos.t) != null) {
                         // Squares too small to aim at: zoom in on the board instead of picking one.
                         if (Layout.SQ * camera.scale < MIN_TAPPABLE_SQUARE.toPx()) {
-                            scope.launch { camera.frame(Layout.boardRect(pos.l, pos.t)) }
+                            scope.launch { camera.frame(Layout.boardRect(pos.l, pos.t, columns)) }
                         } else {
                             currentOnTap(pos)
                         }
                         return@detectTapGestures
                     }
+                    // Around a slice view's boards there's nothing else to frame.
+                    if (currentSlice != null) return@detectTapGestures
                     Layout.timelineAt(world, state)?.let { l ->
                         scope.launch { camera.frame(state.timelineArea(l), TIMELINE_MIN_BOARD) }
                     }
@@ -334,7 +369,9 @@ fun MultiverseView(
         }) {
             drawMultiverse(session, targets, threats, glyphs, labels, textMeasurer, visible, detailed = Layout.SQ * camera.scale >= 10f, slice)
         }
-        drawTimelineRail(session.state, threats.mapTo(HashSet()) { it.from.l }, camera, rail, textMeasurer, labels.rail)
+        drawTimelineRail(
+            session.state, threats.mapTo(HashSet()) { it.from.l }, camera, rail, textMeasurer, labels.rail, slice, session.sliceAnchor(),
+        )
     }
 }
 
@@ -413,8 +450,11 @@ private fun DrawScope.drawTimelineRail(
     rail: TimelineRail,
     textMeasurer: TextMeasurer,
     style: TextStyle,
+    slice: SliceView?,
+    anchor: BoardId,
 ) {
     rail.chips.clear()
+    val columns = slice?.columns(anchor) ?: Columns.STANDARD
     val margin = 10.dp.toPx()
     val padX = 10.dp.toPx()
     val padY = 5.dp.toPx()
@@ -423,8 +463,10 @@ private fun DrawScope.drawTimelineRail(
     var lastBottom = Float.NEGATIVE_INFINITY
     for (timeline in state.timelines.values.sortedBy { it.index }) {
         val l = timeline.index
+        // History view keeps a single timeline.
+        if (slice == SliceView.HISTORY && l != anchor.l) continue
         // Branches are named above their first board, the first timeline to the left of it.
-        val labelLeft = timeline.start * Layout.COL - if (timeline.parent == null) Layout.SQ * 3 else 0f
+        val labelLeft = columns.x(timeline.start) - if (timeline.parent == null) Layout.SQ * 3 else 0f
         if (labelReadable && camera.toScreen(Offset(labelLeft, 0f)).x >= 0f) continue
         val active = state.isActive(l)
         val text = textMeasurer.measure("L${Notation.timelineLabel(l)}", style.copy(color = if (active) Palette.ink else Palette.inkSoft))
@@ -516,6 +558,8 @@ private fun DrawScope.drawMultiverse(
     val state = session.state
     val anchor = session.sliceAnchor()
     fun shown(l: Int, t: Int) = slice?.shows(anchor, l, t) ?: true
+    val columns = slice?.columns(anchor) ?: Columns.STANDARD
+    val history = slice == SliceView.HISTORY
     val side = state.sideToMove
     val mandatory = state.mandatoryTimelines.toSet()
     val ongoing = session.outcome == Outcome.Ongoing
@@ -534,31 +578,34 @@ private fun DrawScope.drawMultiverse(
         }
     }
 
-    // The present: a pale column with ruled edges.
-    val presentLeft = state.present * Layout.COL - Layout.GAP_X * 0.32f
-    val presentWidth = Layout.BOARD + Layout.GAP_X * 0.64f
-    drawRect(Palette.present, Offset(presentLeft, visible.top), Size(presentWidth, visible.height))
-    for (x in floatArrayOf(presentLeft, presentLeft + presentWidth)) {
-        drawLine(Palette.presentEdge, Offset(x, visible.top), Offset(x, visible.bottom), strokeWidth = Layout.SQ * 0.12f)
+    // The present: a pale column with ruled edges (unless History view has hidden its half-move).
+    if (columns.hasColumn(state.present)) {
+        val presentLeft = columns.x(state.present) - Layout.GAP_X * 0.32f
+        val presentWidth = Layout.BOARD + Layout.GAP_X * 0.64f
+        drawRect(Palette.present, Offset(presentLeft, visible.top), Size(presentWidth, visible.height))
+        for (x in floatArrayOf(presentLeft, presentLeft + presentWidth)) {
+            drawLine(Palette.presentEdge, Offset(x, visible.top), Offset(x, visible.bottom), strokeWidth = Layout.SQ * 0.12f)
+        }
     }
 
-    // Timeline ribbons: shadows first, then the ribbons, so boards sit on top of both. A slice view
-    // keeps its own timeline's ribbon and fades the others.
+    // Timeline ribbons: shadows first, then the ribbons, so boards sit on top of both. History view
+    // keeps only its own timeline's ribbon, straight; Parallel view fades them all.
     for (pass in 0..1) {
         for (timeline in state.timelines.values) {
-            val faded = slice != null && !(slice == SliceView.HISTORY && timeline.index == anchor.l)
+            if (history && timeline.index != anchor.l) continue
+            val faded = slice == SliceView.PARALLEL
             val color = (if (pass == 0) Palette.slab else if (state.isActive(timeline.index)) Palette.ribbon else Palette.ribbonInactive)
                 .let { if (faded) it.copy(alpha = 0.15f) else it }
             val shift = if (pass == 0) Layout.SLAB else Offset.Zero
-            drawTimelineRibbon(timeline.index, timeline.start, timeline.end, timeline.parent, color, shift, arrow = ongoing)
+            drawTimelineRibbon(timeline, columns, color, shift, arrow = ongoing, branch = !history)
         }
     }
 
     // A purple arrow on the present, beyond the edge where the side to move's next timeline would
     // appear, when that timeline would be active (and so could move the present).
     val nextTimeline = if (side == Side.WHITE) state.whiteTimelines + 1 else -(state.blackTimelines + 1)
-    if (ongoing && state.isActive(nextTimeline)) {
-        val x = state.present * Layout.COL + Layout.BOARD / 2
+    if (ongoing && !history && state.isActive(nextTimeline)) {
+        val x = columns.x(state.present) + Layout.BOARD / 2
         if (side == Side.WHITE) {
             drawBranchArrow(Offset(x, state.timelines.keys.max() * Layout.ROW + Layout.BOARD + Layout.SQ * 1.6f), 1f)
         } else {
@@ -580,7 +627,7 @@ private fun DrawScope.drawMultiverse(
             color = if (active) Palette.ink else Palette.inkSoft,
         ))
         for (t in timeline.start..timeline.end) {
-            val rect = Layout.boardRect(timeline.index, t)
+            val rect = Layout.boardRect(timeline.index, t, columns)
             if (!rect.inflate(Layout.SQ * 2).overlaps(visible) || !shown(timeline.index, t)) continue
             val board = timeline.boardAt(t)!!
             val playable = canMove && t == timeline.end && Side.toMoveAt(t) == side
@@ -598,7 +645,7 @@ private fun DrawScope.drawMultiverse(
             }
             for (pos in targetSquares) {
                 if (pos.l != timeline.index || pos.t != t) continue
-                val center = Layout.squareCenter(pos)
+                val center = Layout.squareCenter(pos, columns)
                 if (board[pos.x, pos.y] == null) {
                     drawCircle(Palette.targetDot, Layout.SQ * 0.15f, center)
                 } else {
@@ -607,7 +654,7 @@ private fun DrawScope.drawMultiverse(
             }
             for (threat in threats) {
                 if (threat.to.l == timeline.index && threat.to.t == t) {
-                    drawRect(Palette.threat.copy(alpha = 0.45f), Layout.squareTopLeft(threat.to), Size(Layout.SQ, Layout.SQ))
+                    drawRect(Palette.threat.copy(alpha = 0.45f), Layout.squareTopLeft(threat.to, columns), Size(Layout.SQ, Layout.SQ))
                 }
             }
 
@@ -627,8 +674,8 @@ private fun DrawScope.drawMultiverse(
                 drawRect(Palette.floor.copy(alpha = 0.6f), rect.topLeft, rect.size)
             }
         }
-        if (timeline.parent == null) {
-            val labelX = timeline.start * Layout.COL - label.size.width - Layout.SQ * 0.9f
+        if (timeline.parent == null && (!history || timeline.index == anchor.l)) {
+            val labelX = columns.x(timeline.start) - label.size.width - Layout.SQ * 0.9f
             val midY = timeline.index * Layout.ROW + Layout.BOARD / 2
             drawText(label, topLeft = Offset(labelX, midY - label.size.height / 2f))
         }
@@ -637,14 +684,19 @@ private fun DrawScope.drawMultiverse(
     // Arrows for moves between boards, and for threats against the side to move's kings.
     for (move in turnMoves) {
         if (!shown(move.from.l, move.from.t) || !shown(move.to.l, move.to.t)) continue
-        if (!move.isSpatial) drawCurvedArrow(Layout.squareCenter(move.from), Layout.squareCenter(move.to), Palette.travelArrow)
+        if (!move.isSpatial) {
+            drawCurvedArrow(Layout.squareCenter(move.from, columns), Layout.squareCenter(move.to, columns), Palette.travelArrow)
+        }
     }
     for (threat in threats) {
-        drawCurvedArrow(Layout.squareCenter(threat.from), Layout.squareCenter(threat.to), Palette.threat)
+        if (slice != null && (!shown(threat.from.l, threat.from.t) || !shown(threat.to.l, threat.to.t))) continue
+        drawCurvedArrow(Layout.squareCenter(threat.from, columns), Layout.squareCenter(threat.to, columns), Palette.threat)
     }
     // A check indicator on each timeline whose advancement lets a king be captured.
     for (l in threats.mapTo(HashSet()) { it.from.l }) {
-        val rect = Layout.boardRect(l, state.timelines.getValue(l).end)
+        val end = state.timelines.getValue(l).end
+        if (!shown(l, end)) continue
+        val rect = Layout.boardRect(l, end, columns)
         val center = Offset(rect.right + Layout.SQ * 0.75f, rect.top - Layout.SQ * 0.75f)
         drawCircle(Palette.slab, Layout.SQ * 0.8f, center + Layout.SLAB * 0.6f)
         drawCircle(Palette.threat, Layout.SQ * 0.8f, center)
@@ -674,22 +726,27 @@ private fun DrawScope.drawBranchArrow(base: Offset, direction: Float) {
 }
 
 /**
- * A timeline's ribbon: a thick band through its boards, a curve from the board it branched from,
- * and an arrow pointing into the future past its latest board.
+ * A timeline's ribbon: a thick band through its boards, a curve from the board it branched from
+ * (with [branch]), and an arrow pointing into the future past its latest board.
  */
 private fun DrawScope.drawTimelineRibbon(
-    l: Int,
-    start: Int,
-    end: Int,
-    parent: Int?,
+    timeline: Timeline,
+    columns: Columns,
     color: Color,
     shift: Offset,
     arrow: Boolean,
+    branch: Boolean,
 ) {
+    val l = timeline.index
+    val start = timeline.start
+    val parent = timeline.parent?.takeIf { branch }
+    // In History view the band starts at the first board that has a column.
+    val first = if (columns.hasColumn(start)) start else start + 1
+    if (first > timeline.end) return
     val h = Layout.RIBBON
     val midY = l * Layout.ROW + Layout.BOARD / 2 + shift.y
-    val left = start * Layout.COL + shift.x
-    val right = end * Layout.COL + Layout.BOARD + shift.x
+    val left = columns.x(first) + shift.x
+    val right = columns.x(timeline.end) + Layout.BOARD + shift.x
     drawRect(color, Offset(left, midY - h / 2), Size(right - left, h))
 
     if (arrow) {
@@ -706,8 +763,8 @@ private fun DrawScope.drawTimelineRibbon(
     }
 
     if (parent != null) {
-        val from = Offset((start - 1) * Layout.COL + Layout.BOARD * 0.5f, parent * Layout.ROW + Layout.BOARD / 2) + shift
-        val to = Offset(start * Layout.COL + Layout.BOARD * 0.5f, midY)
+        val from = Offset(columns.x(start - 1) + Layout.BOARD * 0.5f, parent * Layout.ROW + Layout.BOARD / 2) + shift
+        val to = Offset(columns.x(start) + Layout.BOARD * 0.5f, midY)
         val path = Path().apply {
             moveTo(from.x, from.y)
             cubicTo(from.x + Layout.COL * 0.55f, from.y, to.x - Layout.COL * 0.55f, to.y, to.x, to.y)
