@@ -1,138 +1,141 @@
-"""Builds the launcher icon: an SVG preview, and the Android vector drawables.
+"""Builds the launcher icon, "Portal": an ivory knight bursting out of a gold-ringed portal onto a
+swirling board, on a night sky with a teal glow and a few stars.
 
-A knight in front of a round board window ringed in gold, above a timeline. The knight's shape
-comes from Noto Sans Symbols 2 (SIL Open Font License): the solid knight (U+265E) is its body,
-the outlined knight (U+2658) its contour and details.
+Writes the adaptive icon's three vector drawables (background, foreground and monochrome) and an
+icon.svg preview, cropped and masked as a round launcher shows it. The knight's shape comes from
+Noto Sans Symbols 2 (SIL Open Font License): the solid knight (U+265E) is its body, the outlined
+knight (U+2658) its contour and details, mirrored to face right.
 
 Usage: build.py ICON_DIR FONT OUT_DIR
 """
-import subprocess
 import sys
+
+from shapes import circle, glyph, ring, spiral, stars
 
 here, font, out = sys.argv[1], sys.argv[2], sys.argv[3]
 
-
-def glyph(code, x, y, size):
-    return subprocess.check_output([sys.executable, "-I", f"{here}/knight.py", font, code, str(x), str(y), str(size)], text=True).strip()
-
-
-NIGHT, GLOW, RIBBON, SHADOW = "#11132A", "#3FC1B0", "#2FA79A", "#06071A"
-BONE, SLATE, GOLD, INK = "#E9E4D6", "#6E7FA6", "#E8B04B", "#22243A"
-
-# The medallion: a board seen through a round window, ringed in gold.
-CX, CY, R = 54, 47, 26
-SQ = 6.5
-KNIGHT = (32.5, 24, 43)
-knight_body = glyph("265E", *KNIGHT)
-knight_contour = glyph("2658", *KNIGHT)
+NIGHT_HI, NIGHT_LO = "#2B3070", "#090A1E"
+TEAL, GOLD_HI, GOLD_LO = "#3FC1B0", "#FFE29A", "#B98328"
+IVORY_HI, IVORY_LO, INK = "#FFFBF0", "#D8CCB4", "#191B33"
+BONE, SLATE = "#E9E4D6", "#6E7FA6"
+FULL = "M0,0h108v108h-108z"
 
 
-def circle(cx, cy, r):
-    return f"M{cx - r:g},{cy:g}a{r:g},{r:g} 0 1,0 {2 * r:g},0a{r:g},{r:g} 0 1,0 -{2 * r:g},0z"
+def lin(x1, y1, x2, y2, *stops):
+    return {"type": "linear", "start": (x1, y1), "end": (x2, y2), "stops": list(stops)}
 
 
-def ring(cx, cy, r, width):
-    """A ring as a filled path: the outer circle, and the inner one the other way round."""
-    o, i = r + width / 2, r - width / 2
-    return (f"M{cx - o:g},{cy:g}a{o:g},{o:g} 0 1,0 {2 * o:g},0a{o:g},{o:g} 0 1,0 -{2 * o:g},0z"
-            f"M{cx - i:g},{cy:g}a{i:g},{i:g} 0 1,1 {2 * i:g},0a{i:g},{i:g} 0 1,1 -{2 * i:g},0z")
+def rad(cx, cy, r, *stops):
+    return {"type": "radial", "center": (cx, cy), "radius": r, "stops": list(stops)}
 
 
-left, top = CX - 4 * SQ, CY - 4 * SQ
-checker = "".join(f"M{left + x * SQ:g},{top + y * SQ:g}h{SQ:g}v{SQ:g}h-{SQ:g}z" for x in range(8) for y in range(8) if (x + y) % 2)
-squares = f"M{left:g},{top:g}h{8 * SQ:g}v{8 * SQ:g}h-{8 * SQ:g}z"
-timeline = "M18,73h62v-5.5l13,9.5l-13,9.5v-5.5h-62z"
+# Everything that matters stays within 33 units of the centre, which every launcher mask shows.
+CX, CY, R = 54, 49, 21
+KNIGHT_BOX = (35, 33.5, 40)
+knight_body = glyph(here, font, "265E", *KNIGHT_BOX, "flip")
+knight_contour = glyph(here, font, "2658", *KNIGHT_BOX, "flip")
+window = circle(CX, CY, R)
+gold_ring = ring(CX, CY, R + 0.6, 3.0)
 
-# (colour, path, shift) in drawing order; the board squares are clipped to the window.
-layers = [
-    (SHADOW, timeline, 1.6, None),
-    (RIBBON, timeline, 0, None),
-    (SHADOW, circle(CX, CY, R + 1.3), 1.8, None),
-    (BONE, squares, 0, circle(CX, CY, R)),
-    (SLATE, checker, 0, circle(CX, CY, R)),
-    (GOLD, ring(CX, CY, R, 2.8), 0, None),
-    (BONE, knight_body, 0, None),
-    (INK, knight_contour, 0, None),
+background = [
+    {"d": FULL, "fill": rad(54, 46, 72, (0, NIGHT_HI, 1), (1, NIGHT_LO, 1))},
+    {"d": FULL, "fill": rad(54, 48, 34, (0, TEAL, 0.5), (0.45, TEAL, 0.14), (1, TEAL, 0))},
+] + [{"d": circle(x, y, r), "fill": ("#FFFFFF", a)} for x, y, r, a in stars(7, 14, avoid=(54, 50, 22))]
+
+foreground = [
+    # The portal's shadow, the swirling board inside it, its depth, and its gold rim.
+    {"d": circle(CX, CY + 2, R + 2.5), "fill": ("#000000", 0.45)},
+    {"d": FULL, "fill": (BONE, 1), "clip": window},
+    {"d": spiral(CX, CY, 40, sectors=10, growth=1.24, twist=0.35, r0=1.5), "fill": (SLATE, 1), "clip": window},
+    {"d": FULL, "fill": rad(CX, CY - 4, R, (0, "#FFFFFF", 0.55), (0.3, TEAL, 0.35), (0.75, "#0B0C22", 0.2), (1, "#0B0C22", 0.7)), "clip": window},
+    {"d": gold_ring, "fill": lin(20, 20, 90, 90, (0, GOLD_HI, 1), (0.5, "#E8B04B", 1), (1, GOLD_LO, 1))},
+    # The knight, breaking out over the rim.
+    {"d": knight_body, "fill": ("#000000", 0.4), "shift": (1.4, 2.0)},
+    {"d": knight_body, "fill": lin(30, 20, 80, 80, (0, IVORY_HI, 1), (1, IVORY_LO, 1))},
+    {"d": knight_contour, "fill": (INK, 1)},
 ]
-stars = [(27, 27, 0.75), (82, 24, 0.6), (75, 14, 0.45), (21, 52, 0.45), (89, 50, 0.5), (33, 16, 0.4), (86, 92, 0.4), (24, 90, 0.5)]
 
-# Launchers show the middle 72 of the 108 units, and some mask that to a circle 66 across: the
-# artwork is scaled down into it, around the centre.
-SCALE = 0.72
-
-# SVG preview, enlarged and masked to the 72 units a round launcher icon shows.
-defs = "".join(f'<clipPath id="c{i}"><path d="{clip}"/></clipPath>' for i, (_, _, _, clip) in enumerate(layers) if clip)
-body = "".join(
-    f'<path fill="{c}" transform="translate(0,{s})" d="{d}"' + (f' clip-path="url(#c{i})"' if clip else "") + "/>"
-    for i, (c, d, s, clip) in enumerate(layers)
-)
-svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="432" height="432">
-<defs>{defs}
-<radialGradient id="glow" cx="54" cy="48" r="44" gradientUnits="userSpaceOnUse">
-<stop offset="0" stop-color="{GLOW}" stop-opacity="0.45"/><stop offset="0.5" stop-color="{GLOW}" stop-opacity="0.12"/><stop offset="1" stop-color="{GLOW}" stop-opacity="0"/>
-</radialGradient><clipPath id="mask"><circle cx="54" cy="54" r="36"/></clipPath></defs>
-<g transform="translate(54,54) scale(1.5) translate(-54,-54)"><g clip-path="url(#mask)">
-<rect width="108" height="108" fill="{NIGHT}"/><rect width="108" height="108" fill="url(#glow)"/>
-{''.join(f'<circle cx="{x}" cy="{y}" r="{r}" fill="#fff" opacity="0.8"/>' for x, y, r in stars)}
-<g transform="translate(54,54) scale({SCALE}) translate(-54,-54)">{body}</g></g></g></svg>"""
-open(f"{here}/icon.svg", "w").write(svg)
+# Themed icons: the rim and the knight's silhouette, in one colour.
+monochrome = [{"d": gold_ring, "fill": ("#000000", 1)}, {"d": knight_body, "fill": ("#000000", 1)}]
 
 
-def vector(paths_xml, comment, extra_ns=""):
+def argb(colour, alpha):
+    return f"#{round(alpha * 255):02X}{colour[1:]}"
+
+
+def svg(shapes):
+    defs, body = [], []
+    for i, s in enumerate(shapes):
+        fill = s["fill"]
+        if isinstance(fill, dict):
+            stops = "".join(f'<stop offset="{o}" stop-color="{c}" stop-opacity="{a}"/>' for o, c, a in fill["stops"])
+            if fill["type"] == "linear":
+                (x1, y1), (x2, y2) = fill["start"], fill["end"]
+                defs.append(f'<linearGradient id="g{i}" gradientUnits="userSpaceOnUse" x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}">{stops}</linearGradient>')
+            else:
+                (cx, cy), r = fill["center"], fill["radius"]
+                defs.append(f'<radialGradient id="g{i}" gradientUnits="userSpaceOnUse" cx="{cx}" cy="{cy}" r="{r}">{stops}</radialGradient>')
+            paint = f'fill="url(#g{i})"'
+        else:
+            paint = f'fill="{fill[0]}" fill-opacity="{fill[1]}"'
+        clip = ""
+        if s.get("clip"):
+            defs.append(f'<clipPath id="c{i}"><path d="{s["clip"]}"/></clipPath>')
+            clip = f' clip-path="url(#c{i})"'
+        dx, dy = s.get("shift", (0, 0))
+        body.append(f'<path {paint}{clip} transform="translate({dx},{dy})" d="{s["d"]}"/>')
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72" width="432" height="432">'
+            f'<defs>{"".join(defs)}<clipPath id="mask"><circle cx="54" cy="54" r="36"/></clipPath></defs>'
+            f'<g clip-path="url(#mask)">{"".join(body)}</g></svg>')
+
+
+def path_xml(shape, indent):
+    fill = shape["fill"]
+    if isinstance(fill, dict):
+        items = "\n".join(f'{indent}            <item android:offset="{o}" android:color="{argb(c, a)}" />' for o, c, a in fill["stops"])
+        if fill["type"] == "linear":
+            (x1, y1), (x2, y2) = fill["start"], fill["end"]
+            geometry = f'android:type="linear" android:startX="{x1}" android:startY="{y1}" android:endX="{x2}" android:endY="{y2}"'
+        else:
+            (cx, cy), r = fill["center"], fill["radius"]
+            geometry = f'android:type="radial" android:centerX="{cx}" android:centerY="{cy}" android:gradientRadius="{r}"'
+        return (f'{indent}<path android:pathData="{shape["d"]}">\n'
+                f'{indent}    <aapt:attr name="android:fillColor">\n'
+                f'{indent}        <gradient {geometry}>\n{items}\n{indent}        </gradient>\n'
+                f'{indent}    </aapt:attr>\n{indent}</path>')
+    return f'{indent}<path android:fillColor="{argb(*fill)}" android:pathData="{shape["d"]}" />'
+
+
+def shape_xml(shape):
+    dx, dy = shape.get("shift", (0, 0))
+    if not (dx or dy or shape.get("clip")):
+        return path_xml(shape, "    ")
+    lines = ["    <group" + (f' android:translateX="{dx}" android:translateY="{dy}"' if dx or dy else "") + ">"]
+    if shape.get("clip"):
+        lines.append(f'        <clip-path android:pathData="{shape["clip"]}" />')
+    lines.append(path_xml(shape, "        "))
+    lines.append("    </group>")
+    return "\n".join(lines)
+
+
+def vector(shapes, comment):
     return f"""<?xml version="1.0" encoding="utf-8"?>
-<!-- {comment} -->
-<vector xmlns:android="http://schemas.android.com/apk/res/android"{extra_ns}
+<!-- {comment} Generated by docs/icon/build.py. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-{paths_xml}
+{chr(10).join(shape_xml(s) for s in shapes)}
 </vector>
 """
 
 
-def path_xml(colour, d, shift, clip, indent="    "):
-    inner = f'{indent}<path android:fillColor="#FF{colour[1:]}" android:pathData="{d}" />'
-    if not shift and not clip:
-        return inner
-    lines = [f'{indent}<group' + (f' android:translateY="{shift}"' if shift else "") + ">"]
-    if clip:
-        lines.append(f'{indent}    <clip-path android:pathData="{clip}" />')
-    lines.append(f'{indent}    <path android:fillColor="#FF{colour[1:]}" android:pathData="{d}" />')
-    lines.append(f"{indent}</group>")
-    return "\n".join(lines)
-
-
-credit = ("A knight in front of a board, ringed in gold, above a timeline, on the 108dp adaptive icon grid. "
-          "The knight's shape is from Noto Sans Symbols 2 (SIL Open Font License), see assets/licenses. "
-          "Generated by docs/icon/build.py.")
-def scaled(paths):
-    inner = "\n".join(path_xml(*layer, indent="        ") for layer in paths)
-    return f'    <group android:scaleX="{SCALE}" android:scaleY="{SCALE}" android:pivotX="54" android:pivotY="54">\n{inner}\n    </group>'
-
-
-open(f"{out}/ic_launcher_foreground.xml", "w").write(vector(scaled(layers), credit))
-
-stars_xml = "\n".join(f'    <path android:fillColor="#CCFFFFFF" android:pathData="{circle(x, y, r)}" />' for x, y, r in stars)
-open(f"{out}/ic_launcher_background.xml", "w").write(vector(f"""    <path android:fillColor="#FF{NIGHT[1:]}" android:pathData="M0,0h108v108h-108z" />
-    <path android:pathData="M0,0h108v108h-108z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="radial"
-                android:centerX="54"
-                android:centerY="48"
-                android:gradientRadius="44">
-                <item android:offset="0" android:color="#733FC1B0" />
-                <item android:offset="0.5" android:color="#1F3FC1B0" />
-                <item android:offset="1" android:color="#003FC1B0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-{stars_xml}""", "The night behind the launcher icon: a teal glow among a few stars. Generated by docs/icon/build.py.",
-    '\n    xmlns:aapt="http://schemas.android.com/aapt"'))
-
-# Themed (monochrome) icon: the ring, the knight's silhouette and the timeline, in one colour.
-mono = [("#000000", timeline, 0, None), ("#000000", ring(CX, CY, R, 2.8), 0, None), ("#000000", knight_body, 0, None)]
-open(f"{out}/ic_launcher_monochrome.xml", "w").write(vector(scaled(mono),
-    "The launcher icon in one colour, for themed icons. Generated by docs/icon/build.py."))
+open(f"{here}/icon.svg", "w").write(svg(background + foreground))
+open(f"{out}/ic_launcher_background.xml", "w").write(vector(background, "The night behind the launcher icon: a teal glow among a few stars."))
+open(f"{out}/ic_launcher_foreground.xml", "w").write(vector(foreground, (
+    "The launcher icon: a knight bursting out of a gold-ringed portal onto a swirling board. The knight's shape is "
+    "from Noto Sans Symbols 2 (SIL Open Font License), see assets/licenses.")))
+open(f"{out}/ic_launcher_monochrome.xml", "w").write(vector(monochrome, "The launcher icon in one colour, for themed icons."))
 print("ok")
