@@ -8,6 +8,8 @@ data class GameMode(
     val computerSide: Side? = null,
     val variant: Variant = Variant.STANDARD,
     val puzzle: Puzzle? = null,
+    /** How many timelines each player may create, or null for no limit (see [GameState.timelineLimit]). */
+    val timelineLimit: Int? = null,
 )
 
 /**
@@ -16,7 +18,7 @@ data class GameMode(
  */
 data class GameSession(
     val mode: GameMode,
-    val state: GameState = mode.puzzle?.start() ?: GameState.initial(mode.variant),
+    val state: GameState = mode.puzzle?.start() ?: GameState.initial(mode.variant, mode.timelineLimit),
     val selected: Pos? = null,
     val outcome: Outcome = Outcome.Ongoing,
     /** Explanation of why the last action was refused, if it was. */
@@ -139,7 +141,7 @@ data class GameSession(
      */
     fun applyComputerTurn(moves: List<Move>?): GameSession {
         if (moves == null) {
-            if (TurnSearch(OUTCOME_BUDGET).findLegalTurn(state) == TurnSearchResult.NoLegalTurn) {
+            if (outcomeSearch().findLegalTurn(state) == TurnSearchResult.NoLegalTurn) {
                 return copy(outcome = endWithoutTurn(state), undecided = false)
             }
             return copy(
@@ -206,10 +208,16 @@ data class GameSession(
      * Whether the game is over once [next] is reached, and whether the search ran out before it
      * could tell (in which case the game goes on, undecided).
      */
-    private fun judge(next: GameState): Pair<Outcome, Boolean> = when (TurnSearch(OUTCOME_BUDGET).findLegalTurn(next)) {
+    private fun judge(next: GameState): Pair<Outcome, Boolean> = when (outcomeSearch().findLegalTurn(next)) {
         TurnSearchResult.NoLegalTurn -> endWithoutTurn(next) to false
         TurnSearchResult.Inconclusive -> Outcome.Ongoing to true
         is TurnSearchResult.Found -> Outcome.Ongoing to false
+    }
+
+    /** The search for a legal reply after each turn: up to [OUTCOME_BUDGET] positions or [OUTCOME_MILLIS]. */
+    private fun outcomeSearch(): TurnSearch {
+        val deadline = System.nanoTime() + OUTCOME_MILLIS * 1_000_000
+        return TurnSearch(OUTCOME_BUDGET, stop = { System.nanoTime() > deadline })
     }
 
     /** How the game ends when the side to move in [at] has no legal turn. */
@@ -229,9 +237,13 @@ data class GameSession(
 
     companion object {
         /**
-         * Positions searched after each turn for a legal reply. Generous, since it runs off the
+         * Limits of the search for a legal reply after each turn. Generous, since it runs off the
          * main thread and usually finds one within a few positions.
          */
-        const val OUTCOME_BUDGET = 40_000
+        const val OUTCOME_BUDGET = 2_000_000
+        const val OUTCOME_MILLIS = 3_000L
+
+        /** Timelines each player may create, unless a game chooses otherwise: with more, the check above can't always decide in time. */
+        const val DEFAULT_TIMELINE_LIMIT = 4
     }
 }

@@ -54,6 +54,10 @@ game's code or assets.
   * Sliding pieces can't pass through boards that don't exist.
 * Moving to the **latest board of another timeline** continues that timeline, so one move plays
   two boards. Moving to an **earlier board** creates a new timeline branching from it.
+* **Timeline limit:** unless you choose Unlimited when starting a game, each player may create up
+  to 4 timelines (or 8). After that they can't branch any more, so moves into the past, including
+  attacks on a king's past, are no longer possible for them. The limit keeps the multiverse small
+  enough for the game to reliably tell whether a position is checkmate.
 * A player may have at most **one more active timeline** than the opponent. Extra timelines are
   dimmed: they can still be played, but they don't hold back the present. A **purple arrow** at
   the end of the present means your next new timeline would be active.
@@ -130,6 +134,13 @@ capturable: within a turn, moves can only add threats, never remove them, becaus
 from a board the opponent can play (which this turn can't touch) against a board that already
 exists (which can't change), and new boards only ever extend a line of attack.
 
+To decide whether a player has any legal turn at all, the search skips moves on other boards that
+can't help (one that neither branches nor leaves behind a board another move lands on), and in a
+second, thorough pass carries the moves found losing down the search instead of re-checking them.
+When the player can't branch (at the timeline limit), move order no longer matters, and a
+constraint solver finds a move for each present board, most constrained board first. The check
+after each turn gets up to three seconds.
+
 The computer looks two turns ahead: it scores its candidate turns, then checks the opponent's
 replies to the most promising ones, takes any checkmate it finds, and avoids turns that allow one.
 It thinks for about two seconds at most.
@@ -165,11 +176,12 @@ The UI uses the Lora typeface (SIL Open Font License, see
 
 ## Known simplifications
 
-* After each turn, a search with a node budget checks whether the next player has a legal turn,
-  allowing at most one extra move on a non-present board (two when checking puzzles). In very
-  complex positions it can run out before deciding; the game then continues, and **⋮ › No legal
-  turn?** searches every turn, as long as it takes, to end the game or show a legal first move. A
-  computer that can't find a turn resigns rather than being declared mated.
+* After each turn, a search of up to three seconds checks whether the next player has a legal turn,
+  allowing at most one extra move on a non-present board (two when checking puzzles). With the
+  default timeline limit it decided every position in our test games; with more timelines it can
+  occasionally run out first. The game then continues, and **⋮ › No legal turn?** searches every
+  turn, as long as it takes, to end the game or show a legal first move. A computer that can't
+  find a turn resigns rather than being declared mated.
 * Castling only checks whether the king's squares are attacked on its own board, not by pieces
   elsewhere in the multiverse.
 * Pawns always promote to a queen.

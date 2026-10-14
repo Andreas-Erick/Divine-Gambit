@@ -28,11 +28,14 @@ class Timeline(val index: Int, val start: Int, val boards: List<Board>, val pare
  * - The present is the earliest end among active timelines. On their turn a player must move on
  *   every board at the present, may move on other boards they can play, and may submit once the
  *   present has passed to the opponent and none of their kings can be captured.
+ * - With a [timelineLimit], each player may create at most that many timelines; once a player has,
+ *   their moves that would branch a new one are not allowed (and so don't threaten anything).
  */
 class GameState(
     val timelines: Map<Int, Timeline>,
     val sideToMove: Side,
     val turnMoves: List<Move> = emptyList(),
+    val timelineLimit: Int? = null,
 ) {
     val timelineIndices: List<Int> by lazy { timelines.keys.sorted() }
 
@@ -121,13 +124,17 @@ class GameState(
                 updated[index] = Timeline(index, move.to.t + 1, listOf(arrived), parent = destination.index)
             }
         }
-        return GameState(updated, sideToMove, turnMoves + move)
+        return GameState(updated, sideToMove, turnMoves + move, timelineLimit)
     }
 
     fun submit(): GameState {
         check(canSubmit) { "Turn is not complete" }
-        return GameState(timelines, sideToMove.opponent)
+        return GameState(timelines, sideToMove.opponent, timelineLimit = timelineLimit)
     }
+
+    /** Whether [side] has created as many timelines as the [timelineLimit] allows. */
+    fun atTimelineLimit(side: Side): Boolean =
+        timelineLimit != null && (if (side == Side.WHITE) whiteTimelines else blackTimelines) >= timelineLimit
 
     private fun newTimelineIndex(side: Side): Int =
         if (side == Side.WHITE) whiteTimelines + 1 else -(blackTimelines + 1)
@@ -164,7 +171,7 @@ class GameState(
             val timeline = passed.getValue(l)
             passed[l] = timeline.appended(timeline.last.with(emptyList()))
         }
-        return GameState(passed, sideToMove, turnMoves).kingCaptures(sideToMove.opponent)
+        return GameState(passed, sideToMove, turnMoves, timelineLimit).kingCaptures(sideToMove.opponent)
     }
 
     /** Decides whether the side to move is checkmated or stalemated. */
@@ -176,7 +183,7 @@ class GameState(
         }
 
     companion object {
-        fun initial(variant: Variant = Variant.STANDARD): GameState =
-            GameState(mapOf(0 to Timeline(0, 0, listOf(variant.board()))), Side.WHITE)
+        fun initial(variant: Variant = Variant.STANDARD, timelineLimit: Int? = null): GameState =
+            GameState(mapOf(0 to Timeline(0, 0, listOf(variant.board()))), Side.WHITE, timelineLimit = timelineLimit)
     }
 }

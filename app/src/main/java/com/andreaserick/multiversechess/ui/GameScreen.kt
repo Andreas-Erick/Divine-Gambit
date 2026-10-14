@@ -411,6 +411,7 @@ private fun detail(session: GameSession): String {
         left > 1 -> parts += "$left boards to play"
     }
     if (state.timelines.size > 1) parts += "${state.timelines.size} timelines"
+    if (state.timelineLimit != null && state.atTimelineLimit(state.sideToMove)) parts += "no more branching for ${state.sideToMove.displayName}"
     return parts.joinToString(" · ")
 }
 

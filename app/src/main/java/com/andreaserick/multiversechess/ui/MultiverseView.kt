@@ -604,7 +604,7 @@ private fun DrawScope.drawMultiverse(
     // A purple arrow on the present, beyond the edge where the side to move's next timeline would
     // appear, when that timeline would be active (and so could move the present).
     val nextTimeline = if (side == Side.WHITE) state.whiteTimelines + 1 else -(state.blackTimelines + 1)
-    if (ongoing && !history && state.isActive(nextTimeline)) {
+    if (ongoing && !history && !state.atTimelineLimit(side) && state.isActive(nextTimeline)) {
         val x = columns.x(state.present) + Layout.BOARD / 2
         if (side == Side.WHITE) {
             drawBranchArrow(Offset(x, state.timelines.keys.max() * Layout.ROW + Layout.BOARD + Layout.SQ * 1.6f), 1f)

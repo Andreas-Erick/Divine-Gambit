@@ -121,4 +121,47 @@ class TurnRulesTest {
         assertTrue(caughtUp.isActive(2))
         assertTrue(caughtUp.isActive(-1))
     }
+
+    @Test
+    fun `at the timeline limit a player can't branch, so can't attack the past either`() {
+        // The f5 knight could jump one turn back to f7, a past board, and take Black's king there.
+        val board = Board.parse("....k...", "........", "........", ".....N..", "........", "........", "........", "....K...")
+        val black = Board.parse("....k...", "........", "........", ".....N..", "........", "........", "........", "....K...")
+        fun state(limit: Int?) = GameState(mapOf(0 to Timeline(0, 0, listOf(board, black, board))), Side.WHITE, timelineLimit = limit)
+
+        assertTrue(state(null).legalMovesFrom(Pos.of(0, 2, "f5")).any { it.to.t == 0 })
+        val limited = state(0)
+        assertTrue(limited.atTimelineLimit(Side.WHITE))
+        assertTrue(limited.legalMovesFrom(Pos.of(0, 2, "f5")).none { it.to.t != 2 })
+        // The limit survives moves and turns.
+        assertEquals(0, limited.move("e1", "d1").submit().timelineLimit)
+    }
+
+    @Test
+    fun `the search for players at the limit agrees with the general one`() {
+        // Short games between computers, with each player allowed one timeline.
+        for (game in 0 until 3) {
+            val player = ComputerPlayer(kotlin.random.Random(game), thinkMillis = 100, candidates = 20, deepened = 2, replies = 10)
+            var state = GameState.initial(timelineLimit = 1)
+            repeat(16) {
+                if (state.atTimelineLimit(state.sideToMove)) {
+                    val fixed = try {
+                        FixedBoardsSearch(50_000) { false }.find(state) != null
+                    } catch (_: BudgetExceeded) {
+                        null
+                    }
+                    val general = when (TurnSearch(50_000).findLegalTurn(state)) {
+                        is TurnSearchResult.Found -> true
+                        TurnSearchResult.NoLegalTurn -> false
+                        TurnSearchResult.Inconclusive -> null
+                    }
+                    if (fixed != null && general != null) assertEquals(general, fixed, "game $game")
+                }
+                val moves = player.chooseTurn(state) ?: return@repeat
+                var s = state
+                for (m in moves) s = s.apply(m)
+                state = s.submit()
+            }
+        }
+    }
 }
