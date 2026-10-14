@@ -11,8 +11,8 @@ affiliated with or endorsed by the original game's developers, and it uses none 
 game's code or assets.
 
 <p align="center">
-  <img src="docs/screenshots/menu.png" width="250" alt="Main menu with a turning checkerboard vortex">
-  <img src="docs/screenshots/time-travel.png" width="250" alt="A knight's jump back in time, drawn as an arrow from timeline +1 into the past of timeline 0">
+  <img src="docs/screenshots/menu.png" width="250" alt="Main menu: a turning checkerboard vortex among the stars, over a night-blue card of game options">
+  <img src="docs/screenshots/time-travel.png" width="250" alt="A knight's jump back in time, drawn as an arrow from timeline +1 into the past of timeline 0, which branches timeline -1">
   <img src="docs/screenshots/overview.png" width="250" alt="Overview of a game with three timelines branching from the original">
 </p>
 
@@ -32,8 +32,8 @@ game's code or assets.
 ## Features
 
 * **The whole multiverse on one canvas.** Every board of every timeline, laid out like a board
-  game on a table: purple ribbons carry each timeline forward, a pale column marks the present, and
-  the boards you can play sit on raised cards.
+  game on a night-blue table: teal ribbons carry each timeline forward, a lighter column marks the
+  present, and the boards you can play sit on raised cards.
 * **Built for finding your way.** Pinch, drag and fling around freely; tap a timeline to frame it,
   tap a distant board to zoom in on it, or jump to the whole multiverse or back to the present with
   one button. Chips on the screen's edge name the timelines that are out of view, and turn gold
@@ -91,7 +91,7 @@ Online play needs an internet connection; everything else works offline.
   them. A limit keeps the multiverse small enough for the game to reliably tell whether a position
   is checkmate.
 * A player may have at most **one more active timeline** than the opponent. Extra timelines are
-  dimmed: they can still be played, but they don't hold back the present. A **purple arrow** at
+  dimmed: they can still be played, but they don't hold back the present. A **teal arrow** at
   the end of the present means your next new timeline would be active.
 * **The present** is the earliest end of any active timeline. On your turn you must move on every
   board in the present (gold ring), may move on your other raised boards, then tap **Submit**.
@@ -107,6 +107,31 @@ Online play needs an internet connection; everything else works offline.
   are faded.
 
 **How to play** in the app's menu has these rules too, and explains every button.
+
+### Reading the boards
+
+<p align="center">
+  <img src="docs/screenshots/legend.png" width="250" alt="Reading the boards in How to play: small drawings of a gold-ringed board, a thin-ringed board, White's and Black's frames and a faded board, each with its meaning">
+</p>
+
+Along each timeline, boards take turns: one where White moves, then one where Black moves. A
+board's frame shows whose it is, and your pieces can only land on boards with your own frame
+colour.
+
+| What you see | What it means |
+| --- | --- |
+| Raised card, gold ring | Your turn on this board, and you must move here before you can submit. |
+| Raised card, thin ring | Your turn on this board; you may move here, but don't have to. |
+| Pale frame | White moves on this board. Flat boards are the past, or wait for the other player. |
+| Near-black frame | Black moves on this board. |
+| Faded board | While a piece is selected: a board it can't land on (your opponent's). Otherwise: a board on an inactive timeline. |
+| Teal squares | The selected piece, and where it can go: a dot for a move, a ring for a capture. They can be on other boards, in the past or on other timelines. |
+| Yellow squares | Where the last turn's moves started and ended. |
+| Lavender squares and arrow | A move through time or across timelines. |
+| Red squares and arrow, red **!** | A king that could be captured, the attacker, and the timeline the attack comes from. |
+| Gold or red timeline label | You still have to move on that timeline (gold), or a king is in danger there (red). |
+
+How to play in the app shows each of these with a small drawing.
 
 ### Finding your way around
 
