@@ -107,7 +107,13 @@ fun MultiverseChessApp(modifier: Modifier = Modifier, viewModel: GameViewModel =
 
 /** The game itself, as on screen while the player is on the board. */
 @Composable
-private fun GameBoard(viewModel: GameViewModel, session: GameSession, onInfernoPlaced: (Offset) -> Unit, modifier: Modifier) {
+private fun GameBoard(
+    viewModel: GameViewModel,
+    session: GameSession,
+    onInfernoPlaced: (Offset) -> Unit,
+    onEnterInferno: (Int?, Offset?) -> Unit,
+    modifier: Modifier,
+) {
     GameScreen(
         session = session,
         thinking = viewModel.thinking,
@@ -128,7 +134,7 @@ private fun GameBoard(viewModel: GameViewModel, session: GameSession, onInfernoP
         infernoSouls = viewModel.hellSouls(),
         hellClosed = viewModel.hellClosed,
         infernoNotice = viewModel.infernoNotice.takeIf { !viewModel.inHell },
-        onEnterInferno = viewModel::enterHell,
+        onEnterInferno = onEnterInferno,
         onInfernoPlaced = onInfernoPlaced,
     )
 }
@@ -199,7 +205,10 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
             }
             DisposableEffect(Unit) { onDispose { Palette.heat = 0f } }
             val hellShown by remember { derivedStateOf { descent.value > 0f } }
+            // The fire breaks through from where the player chose to descend (the Descend button,
+            // or the scroll), and closes back into the Descend button on the way up.
             var portalOrigin by remember { mutableStateOf<Offset?>(null) }
+            var descentOrigin by remember { mutableStateOf<Offset?>(null) }
             Box(modifier) {
                 // Both stay composed, so neither has to be built mid-passage; whichever is in front
                 // takes the touches.
@@ -207,6 +216,10 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                     viewModel,
                     session,
                     onInfernoPlaced = { portalOrigin = it },
+                    onEnterInferno = { soul, from ->
+                        descentOrigin = from
+                        viewModel.enterHell(soul)
+                    },
                     modifier = Modifier
                         .graphicsLayer {
                             // The board sinks and turns away into the dark.
@@ -247,7 +260,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                         active = hellShown && stillHell == null,
                         modifier = Modifier
                             .zIndex(if (hellShown) 1f else -1f)
-                            .portal({ descent.value }, { portalOrigin }, { clock.floatValue })
+                            .portal({ descent.value }, { if (inHell) descentOrigin ?: portalOrigin else portalOrigin }, { clock.floatValue })
                             .stillOr(hellLayer) { stillHell },
                     )
                 }

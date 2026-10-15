@@ -439,11 +439,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-    fun enterHell() {
+    /** Descends into the Inferno, with the trials counting for the soul at [soul], if given. */
+    fun enterHell(soul: Int? = null) {
         if (hellClosed != null || inHell) return
         inHell = true
         infernoNotice = null
         val waiting = waitingSouls(session)
+        if (soul != null && waiting.any { it.index == soul }) trialSoul = soul
         if (waiting.none { it.index == trialSoul }) trialSoul = waiting.maxByOrNull { it.soul.trials }?.index
         if (trial == null) nextTrial()
         clockJob?.cancel()
