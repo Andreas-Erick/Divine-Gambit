@@ -801,9 +801,10 @@ private val RULES = listOf(
         "waits: Continue game with a friend picks it up again.",
     "The Inferno" to
         "If you start a game with the Inferno switched on, a piece that's taken goes to the Inferno. " +
-        "Tap Descend to go after it: there you solve trials, each a puzzle to checkmate in one turn, " +
-        "while the game goes on. A pawn needs one trial, a knight or bishop two, a rook three and a " +
-        "queen four. A piece that has passed its trials returns at the start of your turn, on a square " +
+        "Tap Descend to go after it (with several taken, a scroll asks which one you seek): there you " +
+        "solve trials, each a puzzle to checkmate in one turn, while the game goes on. A pawn needs one " +
+        "trial, a knight or bishop two, a rook three and a queen four; tap your pieces at the top of " +
+        "the Inferno to switch between them. A piece that has passed its trials returns at the start of your turn, on a square " +
         "where it can't be taken straight away. While it's your turn on the board you have 90 seconds " +
         "there per turn; while your opponent thinks, the clock stops. If the game ends while you're " +
         "in the Inferno, you'll be told.",
