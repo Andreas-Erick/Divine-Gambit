@@ -3,8 +3,8 @@ package com.andreaserick.multiversechess.engine
 /**
  * Saves a game as plain text and restores it. What's kept: the mode, the position at the start of
  * the current turn, the moves made in it so far (replayed on restore, so they can still be undone),
- * the move log, the last turn's moves and how the game stands. Undo history from earlier turns
- * isn't kept.
+ * the move log, the last turn's moves, the pieces in the Inferno and how the game stands. Undo
+ * history from earlier turns isn't kept.
  *
  * Puzzles aren't saved: they're short, and restart from their own position.
  */
@@ -13,12 +13,16 @@ object SavedGame {
 
     fun encode(session: GameSession): String {
         require(session.mode.puzzle == null) { "Puzzles aren't saved" }
-        val start = turnStart(session)
+        val startSession = turnStart(session)
+        val start = startSession.state
         val turn = session.state.turnMoves
         return buildString {
             appendLine(VERSION)
             val mode = session.mode
-            appendLine("mode ${mode.computerSide?.name ?: "-"} ${mode.variant.name} ${mode.timelineLimit ?: "-"}" + if (mode.aiOpponent) " ai" else "")
+            appendLine(
+                "mode ${mode.computerSide?.name ?: "-"} ${mode.variant.name} ${mode.timelineLimit ?: "-"}" +
+                    (if (mode.aiOpponent) " ai" else "") + if (mode.inferno) " inferno" else "",
+            )
             appendLine("outcome ${encode(session.outcome)} ${if (session.undecided) 1 else 0}")
             appendLine("side ${start.sideToMove.name}")
             for (timeline in start.timelines.values.sortedBy { it.index }) {
@@ -27,6 +31,9 @@ object SavedGame {
             }
             for (move in turn) appendLine("move ${encode(move.from)} ${encode(move.to)}")
             for (move in session.lastTurn) appendLine("last ${encode(move.from)} ${encode(move.to)}")
+            // As at the start of the turn: replaying its moves takes the pieces they take again.
+            for (soul in startSession.souls) appendLine("soul ${soul.type.letter} ${soul.side.name} ${if (soul.freed) 1 else 0}")
+            startSession.returned?.let { appendLine("returned ${encode(it)}") }
             // The log without the current turn's lines, which replaying its moves adds back.
             for (line in session.log.dropLast(turn.size)) appendLine("log $line")
         }
@@ -50,6 +57,8 @@ object SavedGame {
         val moves = ArrayList<Pair<Pos, Pos>>()
         val last = ArrayList<Pair<Pos, Pos>>()
         val log = ArrayList<String>()
+        val souls = ArrayList<Soul>()
+        var returned: Pos? = null
         for (line in lines.drop(1)) {
             val key = line.substringBefore(' ')
             val rest = line.substringAfter(' ', "")
@@ -59,7 +68,8 @@ object SavedGame {
                     computerSide = words[0].takeIf { it != "-" }?.let { Side.valueOf(it) },
                     variant = Variant.valueOf(words[1]),
                     timelineLimit = words[2].takeIf { it != "-" }?.toInt(),
-                    aiOpponent = words.getOrNull(3) == "ai",
+                    aiOpponent = "ai" in words.drop(3),
+                    inferno = "inferno" in words.drop(3),
                 )
                 "outcome" -> {
                     outcome = decodeOutcome(words[0])
@@ -75,6 +85,8 @@ object SavedGame {
                 "move" -> moves += decodePos(words[0]) to decodePos(words[1])
                 "last" -> last += decodePos(words[0]) to decodePos(words[1])
                 "log" -> log += rest
+                "soul" -> souls += Soul(PieceType.entries.first { it.letter == words[0][0] }, Side.valueOf(words[1]), words[2] == "1")
+                "returned" -> returned = decodePos(words[0])
             }
         }
         val gameMode = mode ?: return null
@@ -85,7 +97,9 @@ object SavedGame {
         )
         // The last turn's moves are only shown, as highlights; keep the ones that can be told apart.
         val lastTurn = last.map { (from, to) -> Move(from, to) }
-        var session = GameSession(gameMode, state = start, outcome = outcome, undecided = undecided, log = log, lastTurn = lastTurn)
+        var session = GameSession(
+            gameMode, state = start, outcome = outcome, undecided = undecided, log = log, lastTurn = lastTurn, souls = souls, returned = returned,
+        )
         for ((from, to) in moves) {
             val move = session.state.legalMovesFrom(from).firstOrNull { it.to == to } ?: return null
             session = session.play(move)
@@ -93,10 +107,10 @@ object SavedGame {
         return session
     }
 
-    private fun turnStart(session: GameSession): GameState {
+    private fun turnStart(session: GameSession): GameSession {
         var s = session
         while (s.state.turnMoves.isNotEmpty()) s = s.previous ?: error("Turn start not in the undo history")
-        return s.state
+        return s
     }
 
     internal fun encode(outcome: Outcome): String = when (outcome) {

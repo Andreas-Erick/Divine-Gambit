@@ -1,12 +1,22 @@
 package com.andreaserick.multiversechess.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,27 +27,29 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,8 +67,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.GameMode
 import com.andreaserick.multiversechess.engine.GameSession
@@ -70,16 +82,23 @@ import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.random.Random
 
+/** Which page of the menu's card is showing. */
+private enum class MenuPage { HOME, SINGLE, MULTI }
+
 @Composable
 fun MenuScreen(
     onStart: (GameMode) -> Unit,
     resumable: GameSession?,
     onContinue: () -> Unit,
+    /** Throws away the game on offer under Continue game. */
+    onDiscard: () -> Unit,
     onPuzzles: () -> Unit,
     puzzleProgress: String,
     canPlayOnline: Boolean,
     resumableOnline: Ticket?,
     onContinueOnline: () -> Unit,
+    /** Forgets the online game on offer under Continue game with a friend. */
+    onDiscardOnline: () -> Unit,
     playerName: String,
     aiName: String?,
     onAiSettings: () -> Unit,
@@ -87,6 +106,7 @@ fun MenuScreen(
     onJoin: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var page by rememberSaveable { mutableStateOf(MenuPage.HOME) }
     var showRules by remember { mutableStateOf(false) }
     var showVariants by remember { mutableStateOf(false) }
     var variant by rememberSaveable { mutableStateOf(Variant.STANDARD) }
@@ -98,6 +118,11 @@ fun MenuScreen(
     val againstAi = preferAi && aiName != null
     var showInvite by remember { mutableStateOf(false) }
     var showJoin by remember { mutableStateOf(false) }
+    var inferno by rememberSaveable { mutableStateOf(false) }
+    var confirmDiscard by remember { mutableStateOf(false) }
+    var confirmDiscardOnline by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = page != MenuPage.HOME) { page = MenuPage.HOME }
 
     Box(modifier.fillMaxSize()) {
         TimeVortex(Modifier.fillMaxSize())
@@ -110,9 +135,9 @@ fun MenuScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(48.dp))
-            Text("Multiverse", style = MaterialTheme.typography.displayMedium, color = Palette.ink)
+            Text("Divine", style = MaterialTheme.typography.displayMedium, color = Palette.ink)
             Text(
-                "C H E S S",
+                "G A M B I T",
                 style = MaterialTheme.typography.titleLarge,
                 color = Palette.accent,
             )
@@ -126,93 +151,106 @@ fun MenuScreen(
             Spacer(Modifier.height(36.dp))
 
             SlabCard(Modifier.widthIn(max = 440.dp).fillMaxWidth()) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (resumable != null) {
-                        PrimaryPill(onClick = onContinue, modifier = Modifier.fillMaxWidth()) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Continue game")
-                                Text(
-                                    resumeSummary(resumable),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Palette.onAccent.copy(alpha = 0.75f),
-                                )
-                            }
+                // Pages slide in from the right going in, and back out to the right going home.
+                AnimatedContent(
+                    page,
+                    transitionSpec = {
+                        val direction = if (targetState != MenuPage.HOME) 1 else -1
+                        (slideInHorizontally { it / 4 * direction } + fadeIn())
+                            .togetherWith(slideOutHorizontally { -it / 4 * direction } + fadeOut())
+                            .using(SizeTransform(clip = false))
+                    },
+                    label = "menu page",
+                ) { shown ->
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        @Composable
+                        fun variantRow() = SettingRow("Variant", variant.description) {
+                            SecondaryPill(onClick = { showVariants = true }) { Text(variant.displayName) }
                         }
-                        HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("New game", style = MaterialTheme.typography.titleLarge)
-                            Text(variant.description, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+
+                        @Composable
+                        fun timelinesRow() = SettingRow("Timelines", "How many each player may create.") {
+                            SecondaryPill(onClick = { showLimits = true }) { Text(limitLabel(timelineLimit)) }
                         }
-                        Spacer(Modifier.width(12.dp))
-                        SecondaryPill(onClick = { showVariants = true }) { Text(variant.displayName) }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Timelines", style = MaterialTheme.typography.titleSmall)
-                            Text("How many each player may create.", style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+
+                        @Composable
+                        fun infernoRow(note: String) = SettingRow("Inferno", "Taken pieces go to the Inferno. Solve puzzles there, while the game goes on, to win them back.$note") {
+                            Switch(checked = inferno, onCheckedChange = { inferno = it })
                         }
-                        Spacer(Modifier.width(12.dp))
-                        SecondaryPill(onClick = { showLimits = true }) { Text(limitLabel(timelineLimit)) }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Opponent", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                if (againstAi) "A language model, choosing among legal turns." else "The built-in computer.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Palette.inkSoft,
-                            )
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        SecondaryPill(onClick = { showOpponents = true }, modifier = Modifier.widthIn(max = 170.dp)) {
-                            Text(if (againstAi) aiName.orEmpty() else "Computer", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        }
-                    }
-                    Spacer(Modifier.height(2.dp))
-                    PrimaryPill(
-                        onClick = { onStart(GameMode(computerSide = Side.BLACK, variant = variant, timelineLimit = timelineLimit, aiOpponent = againstAi)) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Play as White") }
-                    PrimaryPill(
-                        onClick = { onStart(GameMode(computerSide = Side.WHITE, variant = variant, timelineLimit = timelineLimit, aiOpponent = againstAi)) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Play as Black") }
-                    SecondaryPill(onClick = { onStart(GameMode(variant = variant, timelineLimit = timelineLimit)) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Pass and play")
-                    }
-                    if (canPlayOnline) {
-                        HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
-                        if (resumableOnline != null) {
-                            PrimaryPill(onClick = onContinueOnline, modifier = Modifier.fillMaxWidth()) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("Continue game with a friend")
-                                    Text(
+
+                        when (shown) {
+                            MenuPage.HOME -> {
+                                if (resumable != null) {
+                                    ResumeRow("Continue game", resumeSummary(resumable), "Discard this game", onContinue) { confirmDiscard = true }
+                                }
+                                if (canPlayOnline && resumableOnline != null) {
+                                    ResumeRow(
+                                        "Continue game with a friend",
                                         listOfNotNull(
                                             resumableOnline.opponentName?.let { "vs $it" },
                                             "you play ${resumableOnline.side.displayName}",
                                             resumableOnline.displayCode,
                                         ).joinToString(" · "),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Palette.onAccent.copy(alpha = 0.75f),
-                                    )
+                                        "Forget this online game",
+                                        onContinueOnline,
+                                    ) { confirmDiscardOnline = true }
+                                }
+                                if (resumable != null || (canPlayOnline && resumableOnline != null)) {
+                                    HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
+                                }
+                                MenuChoice("Singleplayer", "Against the computer or an AI.") { page = MenuPage.SINGLE }
+                                MenuChoice(
+                                    "Multiplayer",
+                                    if (canPlayOnline) "Pass and play on this phone, or a friend online." else "Pass and play on this phone.",
+                                ) { page = MenuPage.MULTI }
+                                HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
+                                SecondaryPill(onClick = onPuzzles, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Puzzles")
+                                    Spacer(Modifier.weight(1f))
+                                    Text(puzzleProgress, color = Palette.inkSoft)
+                                }
+                                Row(Modifier.align(Alignment.CenterHorizontally)) {
+                                    TextButton(onClick = { showRules = true }) { Text("How to play") }
+                                    TextButton(onClick = onAiSettings) { Text("AI opponent") }
+                                }
+                            }
+                            MenuPage.SINGLE -> {
+                                PageHeader("Singleplayer") { page = MenuPage.HOME }
+                                variantRow()
+                                timelinesRow()
+                                SettingRow("Opponent", if (againstAi) "A language model, choosing among legal turns." else "The built-in computer.") {
+                                    SecondaryPill(onClick = { showOpponents = true }, modifier = Modifier.widthIn(max = 170.dp)) {
+                                        Text(if (againstAi) aiName.orEmpty() else "Computer", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                                infernoRow("")
+                                Spacer(Modifier.height(2.dp))
+                                PrimaryPill(
+                                    onClick = { onStart(GameMode(computerSide = Side.BLACK, variant = variant, timelineLimit = timelineLimit, aiOpponent = againstAi, inferno = inferno)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Play as White") }
+                                PrimaryPill(
+                                    onClick = { onStart(GameMode(computerSide = Side.WHITE, variant = variant, timelineLimit = timelineLimit, aiOpponent = againstAi, inferno = inferno)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Play as Black") }
+                            }
+                            MenuPage.MULTI -> {
+                                PageHeader("Multiplayer") { page = MenuPage.HOME }
+                                variantRow()
+                                timelinesRow()
+                                infernoRow(if (canPlayOnline) " On this phone only, not online." else "")
+                                Spacer(Modifier.height(2.dp))
+                                PrimaryPill(
+                                    onClick = { onStart(GameMode(variant = variant, timelineLimit = timelineLimit, inferno = inferno)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Pass and play") }
+                                if (canPlayOnline) {
+                                    // One per row: side by side, the labels don't fit on narrow phones.
+                                    SecondaryPill(onClick = { showInvite = true }, modifier = Modifier.fillMaxWidth()) { Text("Invite a friend") }
+                                    SecondaryPill(onClick = { showJoin = true }, modifier = Modifier.fillMaxWidth()) { Text("Join a friend") }
                                 }
                             }
                         }
-                        // One per row: side by side, the labels don't fit on narrow phones.
-                        SecondaryPill(onClick = { showInvite = true }, modifier = Modifier.fillMaxWidth()) { Text("Invite a friend") }
-                        SecondaryPill(onClick = { showJoin = true }, modifier = Modifier.fillMaxWidth()) { Text("Join a friend") }
-                    }
-                    HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
-                    SecondaryPill(onClick = onPuzzles, modifier = Modifier.fillMaxWidth()) {
-                        Text("Puzzles")
-                        Spacer(Modifier.weight(1f))
-                        Text(puzzleProgress, color = Palette.inkSoft)
-                    }
-                    Row(Modifier.align(Alignment.CenterHorizontally)) {
-                        TextButton(onClick = { showRules = true }) { Text("How to play") }
-                        TextButton(onClick = onAiSettings) { Text("AI opponent") }
                     }
                 }
             }
@@ -220,6 +258,44 @@ fun MenuScreen(
     }
 
     if (showRules) RulesDialog(onDismiss = { showRules = false })
+    if (confirmDiscard) {
+        AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDiscard = false
+                    onDiscard()
+                }) { Text("Discard") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Keep it") } },
+            title = { Text("Discard this game?") },
+            text = { Text("It can't be continued afterwards.") },
+        )
+    }
+    if (confirmDiscardOnline && resumableOnline != null) {
+        val friend = resumableOnline.opponentName
+        AlertDialog(
+            onDismissRequest = { confirmDiscardOnline = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDiscardOnline = false
+                    onDiscardOnline()
+                }) { Text("Forget it") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDiscardOnline = false }) { Text("Keep it") } },
+            title = { Text("Forget this online game?") },
+            text = {
+                Text(
+                    if (friend == null) {
+                        "Nobody has joined it yet. You won't be able to come back to it, so don't send its link."
+                    } else {
+                        "You won't be able to come back to it, and $friend won't be told. To end it properly, " +
+                            "continue the game and resign from ⋮ instead."
+                    },
+                )
+            },
+        )
+    }
     if (showOpponents) {
         OpponentDialog(
             aiName = aiName,
@@ -275,6 +351,61 @@ fun MenuScreen(
             },
             onDismiss = { showVariants = false },
         )
+    }
+}
+
+/** A game on offer to continue, with a button to throw it away. */
+@Composable
+private fun ResumeRow(title: String, summary: String, discardLabel: String, onContinue: () -> Unit, onDiscard: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        PrimaryPill(onClick = onContinue, modifier = Modifier.weight(1f)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(title)
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Palette.onAccent.copy(alpha = 0.75f),
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        RoundIconButton(Icons.Filled.Close, discardLabel, onDiscard)
+    }
+}
+
+/** A way into one of the menu's pages: its name, what's in it, and an arrow. */
+@Composable
+private fun MenuChoice(title: String, description: String, onClick: () -> Unit) {
+    SecondaryPill(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Palette.inkSoft)
+    }
+}
+
+/** A page's title, with the way back to the menu's first page. */
+@Composable
+private fun PageHeader(title: String, onBack: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack)
+        Spacer(Modifier.width(12.dp))
+        Text(title, style = MaterialTheme.typography.titleLarge)
+    }
+}
+
+/** A setting: its name and what it does, with [control] to change it at the end. */
+@Composable
+private fun SettingRow(title: String, description: String, control: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+        }
+        Spacer(Modifier.width(12.dp))
+        control()
     }
 }
 
@@ -367,7 +498,7 @@ private fun InviteDialog(variant: Variant, timelineLimit: Int?, playerName: Stri
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     "You'll get a link to send to your friend, to play on their own phone. " +
-                        "${variant.displayName}, ${limitLabel(timelineLimit).lowercase()}, as chosen in the menu.",
+                        "${variant.displayName}, ${limitLabel(timelineLimit).lowercase()}, as chosen under Multiplayer.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 NameField(name, onChange = { name = it })
@@ -451,6 +582,7 @@ private fun resumeSummary(game: GameSession): String {
         },
     )
     parts += game.mode.variant.displayName
+    if (game.mode.inferno) parts += "Inferno"
     parts += "turn ${Notation.turnNumber(game.state.present)}"
     if (game.state.timelines.size > 1) parts += "${game.state.timelines.size} timelines"
     return parts.joinToString(" · ")
@@ -560,7 +692,11 @@ fun RulesDialog(onDismiss: () -> Unit) {
 private class ButtonHelp(val name: String, val text: String, val icon: ImageVector? = null, val pill: String? = null)
 
 private val BUTTONS = listOf(
-    ButtonHelp("Back", "Leave the game; it's saved, and Continue game in the menu picks it up again.", icon = Icons.AutoMirrored.Filled.ArrowBack),
+    ButtonHelp(
+        "Back",
+        "Leave the game; it's saved, and Continue game in the menu picks it up again. The × beside Continue game throws it away.",
+        icon = Icons.AutoMirrored.Filled.ArrowBack,
+    ),
     ButtonHelp("How to play", "Opens these rules.", icon = Icons.Filled.Info),
     ButtonHelp(
         "More",
@@ -654,7 +790,7 @@ private val RULES = listOf(
     "AI opponent" to
         "In AI opponent (below the menu) you can connect a language model: Gemini with your API key, " +
         "a model on your computer (LM Studio or Ollama), or one downloaded to this phone. Choose it " +
-        "as your Opponent to play it: it picks one of the legal turns the engine finds and says " +
+        "as your Opponent under Singleplayer to play it: it picks one of the legal turns the engine finds and says " +
         "something about it. Under Puzzles it can also design puzzles; the engine checks each one " +
         "really is mate in one turn, and makes one itself if the AI's don't work out.",
     "Playing a friend" to
@@ -663,6 +799,14 @@ private val RULES = listOf(
         "under Join a friend. The names you both give are shown to each other in that game. " +
         "Undo only takes back moves you haven't submitted. If either of you leaves, the game " +
         "waits: Continue game with a friend picks it up again.",
+    "The Inferno" to
+        "If you start a game with the Inferno switched on, a piece that's taken goes to the Inferno. " +
+        "Tap Descend to go after it: there you solve trials, each a puzzle to checkmate in one turn, " +
+        "while the game goes on. A pawn needs one trial, a knight or bishop two, a rook three and a " +
+        "queen four. A piece that has passed its trials returns at the start of your turn, on a square " +
+        "where it can't be taken straight away. While it's your turn on the board you have 90 seconds " +
+        "there per turn; while your opponent thinks, the clock stops. If the game ends while you're " +
+        "in the Inferno, you'll be told.",
     "Fairy pieces" to
         "Some variants add pieces drawn as lettered discs. S, princess: a rook or bishop move. " +
         "U, unicorn: equal distance along exactly three dimensions. D, dragon: equal distance " +
