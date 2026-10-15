@@ -15,6 +15,8 @@ data class GameMode(
     val timelineLimit: Int? = null,
     val onlineSide: Side? = null,
     val aiOpponent: Boolean = false,
+    /** Taken pieces go to the [Inferno], where their owner can win them back by solving puzzles. */
+    val inferno: Boolean = false,
 )
 
 /**
@@ -38,6 +40,10 @@ data class GameSession(
      * turn or proving there is none. [claimNoLegalTurn] settles it.
      */
     val undecided: Boolean = false,
+    /** With the Inferno rule, every piece taken so far, in the order they were taken. */
+    val souls: List<Soul> = emptyList(),
+    /** Where the last piece freed from the Inferno came back, while it's that turn. */
+    val returned: Pos? = null,
     val previous: GameSession? = null,
 ) {
     val isComputerTurn: Boolean get() = outcome == Outcome.Ongoing && mode.computerSide == state.sideToMove
@@ -69,8 +75,46 @@ data class GameSession(
         selected = null,
         message = null,
         log = log + logLine(state, move),
+        souls = souls + listOfNotNull(soulTakenBy(state, move)),
         previous = this,
     )
+
+    /** The piece [move] sends to the Inferno, when the game is played with it and still going. */
+    private fun soulTakenBy(before: GameState, move: Move): Soul? {
+        if (!mode.inferno || outcome != Outcome.Ongoing) return null
+        val taken = before.capturedBy(move) ?: return null
+        return Soul(taken.type, taken.side)
+    }
+
+    /**
+     * Whether the soul at [index] can return to the board now: it's its side's own turn on this
+     * device, before any move of the turn.
+     */
+    fun canFree(index: Int): Boolean {
+        val soul = souls.getOrNull(index) ?: return false
+        return mode.inferno && !soul.freed && outcome == Outcome.Ongoing && state.sideToMove == soul.side &&
+            state.turnMoves.isEmpty() && !isComputerTurn && !isRemoteTurn
+    }
+
+    /**
+     * Brings the soul at [index], won back in the Inferno, onto the board at the start of its
+     * side's turn (see [Inferno.returnSquare]). Null if it can't return now, or there's no safe
+     * square for it. Undo takes it back together with whatever came before this turn.
+     */
+    fun free(index: Int): GameSession? {
+        if (!canFree(index)) return null
+        val soul = souls[index]
+        val piece = Piece(soul.type, soul.side, moved = true)
+        val pos = Inferno.returnSquare(state, piece) ?: return null
+        return copy(
+            state = state.withPiece(pos, piece),
+            selected = null,
+            message = null,
+            log = log + "${soul.side.displayName}: ${soul.type.displayName} returns from the Inferno ${Notation.boardLabel(pos.l, pos.t)} ${pos.square}",
+            souls = souls.mapIndexed { i, it -> if (i == index) it.copy(freed = true) else it },
+            returned = pos,
+        )
+    }
 
     fun submit(): GameSession {
         if (outcome != Outcome.Ongoing) {
@@ -88,6 +132,7 @@ data class GameSession(
             outcome = ended,
             undecided = undecided,
             lastTurn = state.turnMoves,
+            returned = null,
             previous = this,
         )
     }
@@ -176,7 +221,11 @@ data class GameSession(
             )
         }
         var s = state
-        val lines = moves.map { move -> logLine(s, move).also { s = s.apply(move) } }
+        val taken = ArrayList<Soul>()
+        val lines = moves.map { move ->
+            soulTakenBy(s, move)?.let { taken += it }
+            logLine(s, move).also { s = s.apply(move) }
+        }
         val next = s.submit()
         val (ended, undecided) = judge(next)
         return copy(
@@ -187,6 +236,8 @@ data class GameSession(
             undecided = undecided,
             log = log + lines,
             lastTurn = moves,
+            souls = souls + taken,
+            returned = null,
             previous = this,
         )
     }

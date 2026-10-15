@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
@@ -23,6 +24,7 @@ import com.andreaserick.multiversechess.ai.ServerModel
 import com.andreaserick.multiversechess.engine.ComputerPlayer
 import com.andreaserick.multiversechess.engine.GameMode
 import com.andreaserick.multiversechess.engine.GameSession
+import com.andreaserick.multiversechess.engine.Notation
 import com.andreaserick.multiversechess.engine.OnlineEvent
 import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.engine.Pos
@@ -41,6 +43,7 @@ import com.andreaserick.multiversechess.online.RelayConnection
 import com.andreaserick.multiversechess.online.RelayException
 import com.andreaserick.multiversechess.online.RelayMessage
 import com.andreaserick.multiversechess.online.Ticket
+import com.andreaserick.multiversechess.ui.SoulView
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -145,11 +148,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startGame(mode: GameMode) {
         aiRemark = null
+        trialsSolved = emptyMap()
+        if (mode.inferno) viewModelScope.launch(saving) { runCatching { trialsFile.delete() } }
         show(GameSession(mode))
     }
 
+    /** Throws away the game on offer under Continue game. */
+    fun discardGame() {
+        resumable = null
+        resumableTrials = emptyMap()
+        viewModelScope.launch(saving) {
+            runCatching {
+                saveFile.delete()
+                trialsFile.delete()
+            }
+        }
+    }
+
     fun continueGame() {
-        resumable?.let { show(it) }
+        val game = resumable ?: return
+        trialsSolved = resumableTrials
+        show(game)
     }
 
     fun openPuzzles() {
@@ -201,16 +220,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val current = session
         if (current != null && current.mode.puzzle == null && current.mode.onlineSide == null && current.outcome == Outcome.Ongoing) {
             resumable = current
+            resumableTrials = trialsSolved
         }
         leaveOnline()
+        closeInferno()
         session = null
         aiRemark = null
     }
 
-    fun tap(pos: Pos) = update { it.tap(pos) }
+    fun tap(pos: Pos) {
+        infernoNotice = null
+        update { it.tap(pos) }
+    }
 
     /** Checking whether the opponent has a legal reply (or a puzzle answer is mate) can take a moment. */
     fun submit() {
+        infernoNotice = null
         val current = session?.takeIf { outbox == null } ?: return
         runInBackground(current) { session, _ -> session.submit() }
     }
@@ -262,6 +287,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         session = next
         recordSolved(previous, next)
         save(next)
+        watchInferno(previous, next)
         if (next.isComputerTurn) {
             val model = if (next.mode.aiOpponent) aiModel else null
             if (model != null) {
@@ -295,6 +321,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 if (game.outcome == Outcome.Ongoing) saveFile.writeText(SavedGame.encode(game)) else saveFile.delete()
             }
+            if (game.outcome != Outcome.Ongoing || !game.mode.inferno) runCatching { trialsFile.delete() }
         }
     }
 
@@ -328,6 +355,265 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         job = null
         thinking = false
     }
+
+    // The Inferno: with that rule, taken pieces go there, and the player wins them back by solving
+    // puzzles ("trials") while the game goes on. Time there is limited on the player's own turn.
+
+    /** Whether the player is in the Inferno. */
+    var inHell by mutableStateOf(false)
+        private set
+
+    /** The puzzle being solved there; null while the next one is being made. */
+    var trial by mutableStateOf<GameSession?>(null)
+        private set
+
+    /** Which soul (an index into the game's souls) the trials are for. */
+    var trialSoul by mutableStateOf<Int?>(null)
+        private set
+
+    /** Trials passed for each soul, by its index. */
+    var trialsSolved by mutableStateOf<Map<Int, Int>>(emptyMap())
+        private set
+
+    /** Checking a trial's answer. */
+    var trialChecking by mutableStateOf(false)
+        private set
+
+    /** Seconds left in the Inferno during this player's turn. */
+    var hellSeconds by mutableIntStateOf(HELL_SECONDS)
+        private set
+
+    /** News for the player: from the board while in the Inferno, or from the Inferno on the board. */
+    var infernoNotice by mutableStateOf<String?>(null)
+        private set
+
+    /** How the game ended while the player was in the Inferno, until they've taken it in. */
+    var endedInHell by mutableStateOf<Outcome?>(null)
+        private set
+
+    /** Trials passed in the game on offer under Continue game. */
+    private var resumableTrials: Map<Int, Int> = emptyMap()
+    private val trialsFile = File(application.filesDir, "inferno.txt")
+
+    init {
+        viewModelScope.launch {
+            val loaded = withContext(saving) {
+                runCatching { trialsFile.takeIf { it.exists() }?.readText()?.let(::decodeTrials) }.getOrNull()
+            }
+            if (loaded != null) resumableTrials = loaded
+        }
+    }
+
+    /** Puzzles made ahead of time for the trials, and puzzles from the list already used as one. */
+    private val forged = ArrayDeque<Puzzle>()
+    private val usedTrials = HashSet<String>()
+    private var forgeJob: Job? = null
+    private var trialJob: Job? = null
+    private var clockJob: Job? = null
+    private var freeing = false
+
+    /** The side whose Inferno this device shows: the player's, or in pass and play, the side to move. */
+    private fun GameSession.hellSide(): Side = mode.computerSide?.opponent ?: state.sideToMove
+
+    /** Souls of the player's side still in the Inferno, with the trials they've passed. */
+    fun hellSouls(game: GameSession? = session): List<SoulView> {
+        if (game == null || !game.mode.inferno) return emptyList()
+        val side = game.hellSide()
+        return game.souls.withIndex()
+            .filter { (_, soul) -> soul.side == side && !soul.freed }
+            .map { (i, soul) -> SoulView(i, soul, trialsSolved[i] ?: 0) }
+    }
+
+    /** Souls that still have trials ahead. */
+    private fun waitingSouls(game: GameSession?) = hellSouls(game).filter { it.solved < it.soul.trials }
+
+    /** Why the Inferno can't be entered now, or null if it can. */
+    val hellClosed: String?
+        get() {
+            val game = session ?: return "No game."
+            return when {
+                !game.mode.inferno || game.outcome != Outcome.Ongoing -> "The game is over."
+                waitingSouls(game).isEmpty() -> "None of your pieces are waiting for a trial."
+                hellSeconds <= 0 -> "Closed until you've played your turn."
+                else -> null
+            }
+        }
+
+    fun enterHell() {
+        if (hellClosed != null || inHell) return
+        inHell = true
+        infernoNotice = null
+        val waiting = waitingSouls(session)
+        if (waiting.none { it.index == trialSoul }) trialSoul = waiting.maxByOrNull { it.soul.trials }?.index
+        if (trial == null) nextTrial()
+        clockJob?.cancel()
+        clockJob = viewModelScope.launch {
+            while (inHell) {
+                delay(1_000)
+                val game = session ?: break
+                // The clock only runs while it's this player's turn on the board.
+                if (game.outcome != Outcome.Ongoing || game.isComputerTurn || endedInHell != null) continue
+                hellSeconds--
+                if (hellSeconds <= 0) {
+                    leaveHell()
+                    infernoNotice = "Your time in the Inferno is up. Play your turn; you can go back after it."
+                }
+            }
+        }
+    }
+
+    fun leaveHell() {
+        inHell = false
+        endedInHell = null
+        clockJob?.cancel()
+    }
+
+    /** Has the trials count for the soul at [index]. */
+    fun chooseSoul(index: Int) {
+        if (waitingSouls(session).any { it.index == index }) trialSoul = index
+    }
+
+    fun trialTap(pos: Pos) {
+        if (!trialChecking) trial = trial?.tap(pos)
+    }
+
+    fun trialUndo() {
+        if (!trialChecking) trial = trial?.undo()
+    }
+
+    fun restartTrial() {
+        if (!trialChecking) trial = trial?.restartPuzzle()
+    }
+
+    /** Sets this trial aside for another. */
+    fun skipTrial() {
+        trialJob?.cancel()
+        trialChecking = false
+        nextTrial()
+    }
+
+    fun submitTrial() {
+        val current = trial ?: return
+        if (trialChecking) return
+        trialChecking = true
+        trialJob = viewModelScope.launch {
+            val next = withContext(Dispatchers.Default) { current.submit() }
+            trialChecking = false
+            if (trial !== current) return@launch
+            trial = next
+            if (next.outcome is Outcome.Checkmate) trialPassed()
+        }
+    }
+
+    /**
+     * The next trial: a puzzle made for it if one is ready, or else one from the puzzle list, a
+     * used one again once they've all been tried, rather than keep the player waiting.
+     */
+    fun nextTrial() {
+        val puzzle = forged.removeFirstOrNull()
+            ?: allPuzzles.filter { it.id !in usedTrials }.randomOrNull()
+            ?: allPuzzles.filter { it.id != trial?.mode?.puzzle?.id }.randomOrNull()
+        puzzle?.let { usedTrials += it.id }
+        trial = puzzle?.let { GameSession(GameMode(puzzle = it)) }
+        forge()
+    }
+
+    private fun trialPassed() {
+        val game = session ?: return
+        val waiting = waitingSouls(game)
+        val soul = waiting.firstOrNull { it.index == trialSoul } ?: waiting.firstOrNull() ?: return
+        val solved = soul.solved + 1
+        trialsSolved = trialsSolved + (soul.index to solved)
+        saveTrials(game)
+        val name = soul.soul.type.displayName.lowercase()
+        infernoNotice = if (solved < soul.soul.trials) {
+            "Trial passed: $solved of ${soul.soul.trials} for your $name."
+        } else {
+            trialSoul = waitingSouls(game).maxByOrNull { it.soul.trials }?.index
+            "Your $name is free! It returns to the board at the start of your turn."
+        }
+        freeSouls()
+    }
+
+    /**
+     * Keeps the Inferno in step with the game: each turn brings a new allowance of time, the
+     * computer's move or the end of the game is news in the Inferno, and freed pieces return.
+     */
+    private fun watchInferno(previous: GameSession?, next: GameSession) {
+        if (!next.mode.inferno) return
+        // Undo can take a piece back out of the Inferno.
+        if (trialsSolved.keys.any { it >= next.souls.size }) trialsSolved = trialsSolved.filterKeys { it < next.souls.size }
+        if (previous != null && previous.state.sideToMove != next.state.sideToMove) hellSeconds = HELL_SECONDS
+        if (inHell && previous != null) {
+            when {
+                previous.outcome == Outcome.Ongoing && next.outcome != Outcome.Ongoing -> endedInHell = next.outcome
+                previous.isComputerTurn && !next.isComputerTurn && next.outcome == Outcome.Ongoing ->
+                    infernoNotice = "${next.state.sideToMove.opponent.displayName} has played. It's your turn: " +
+                        "${formatSeconds(hellSeconds)} left here before you must go back."
+            }
+        }
+        if (waitingSouls(next).isNotEmpty()) forge()
+        freeSouls()
+    }
+
+    /** Brings a piece that has passed its trials back to the board, at the start of its side's turn. */
+    private fun freeSouls() {
+        val current = session ?: return
+        if (freeing) return
+        val ready = current.souls.indices.firstOrNull { i ->
+            current.canFree(i) && (trialsSolved[i] ?: 0) >= current.souls[i].trials
+        } ?: return
+        freeing = true
+        viewModelScope.launch {
+            // Finding a safe square checks the opponent's replies across the multiverse.
+            val next = withContext(Dispatchers.Default) { current.free(ready) }
+            freeing = false
+            if (next == null || session !== current) return@launch
+            val pos = next.returned!!
+            infernoNotice = "Your ${current.souls[ready].type.displayName.lowercase()} has returned from the Inferno: " +
+                "${Notation.boardLabel(pos.l, pos.t)} ${pos.square}."
+            show(next)
+            saveTrials(next)
+        }
+    }
+
+    /** Makes puzzles for the trials in the background, a couple ahead. */
+    private fun forge() {
+        if (forgeJob?.isActive == true || forged.size >= FORGED_AHEAD) return
+        forgeJob = viewModelScope.launch {
+            while (forged.size < FORGED_AHEAD && waitingSouls(session).isNotEmpty()) {
+                val puzzle = withContext(Dispatchers.Default) {
+                    val job = coroutineContext.job
+                    PuzzleGenerator(stop = { !job.isActive }).generate(0)
+                } ?: continue
+                forged += puzzle
+                if (inHell && trial == null) nextTrial()
+            }
+        }
+    }
+
+    /** Leaves the Inferno and sets its trials aside, as the game closes. */
+    private fun closeInferno() {
+        leaveHell()
+        forgeJob?.cancel()
+        trialJob?.cancel()
+        trialChecking = false
+        forged.clear()
+        usedTrials.clear()
+        trial = null
+        trialSoul = null
+        infernoNotice = null
+        hellSeconds = HELL_SECONDS
+    }
+
+    private fun saveTrials(game: GameSession) {
+        if (!game.mode.inferno || game.mode.puzzle != null || game.mode.onlineSide != null) return
+        val text = trialsSolved.entries.joinToString("\n") { (index, solved) -> "$index $solved" }
+        viewModelScope.launch(saving) { runCatching { trialsFile.writeText(text) } }
+    }
+
+    private fun decodeTrials(text: String): Map<Int, Int> =
+        text.lines().filter { it.isNotBlank() }.associate { line -> line.split(' ').let { (index, solved) -> index.toInt() to solved.toInt() } }
 
     // AI: a language model to play against, and to design puzzles.
 
@@ -568,6 +854,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit { putString(KEY_NAME, name) }
     }
 
+    /** Forgets the online game on offer under Continue game with a friend; it can't be rejoined. */
+    fun discardOnline() = forgetOnline()
+
     fun continueOnline() {
         resumableOnline?.let(::startOnline)
     }
@@ -746,5 +1035,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_NAME = "player_name"
         const val RECONNECT_MIN_MILLIS = 1_000L
         const val RECONNECT_MAX_MILLIS = 15_000L
+
+        /** Time in the Inferno on each of the player's turns. */
+        const val HELL_SECONDS = 90
+        const val FORGED_AHEAD = 2
+
+        fun formatSeconds(seconds: Int) = "%d:%02d".format(seconds / 60, seconds % 60)
     }
 }
