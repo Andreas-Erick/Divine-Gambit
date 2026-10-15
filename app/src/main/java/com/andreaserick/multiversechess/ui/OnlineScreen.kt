@@ -88,7 +88,7 @@ fun InvitationScreen(invitation: Invitation, playerName: String, onJoin: (String
         Text("${invitation.hostName} invites you to play", style = MaterialTheme.typography.titleLarge)
         val limit = invitation.timelineLimit?.let { "up to $it timelines each" } ?: "unlimited timelines"
         Text(
-            "You play ${invitation.hostSide.opponent.displayName} · ${invitation.variant.displayName} · $limit",
+            "You play ${invitation.hostSide.opponent.displayName} · ${invitation.variant.displayName} · $limit" + if (invitation.inferno) " · Inferno" else "",
             style = MaterialTheme.typography.bodyMedium,
             color = Palette.inkSoft,
         )
@@ -132,7 +132,7 @@ fun ConnectingScreen(connecting: Connecting, onRetry: () -> Unit, onBack: () -> 
 /** E.g. "You play White · Standard · up to 4 timelines each". */
 fun ticketSummary(ticket: Ticket): String {
     val limit = ticket.timelineLimit?.let { "up to $it timelines each" } ?: "unlimited timelines"
-    return "You play ${ticket.side.displayName} · ${ticket.variant.displayName} · $limit"
+    return "You play ${ticket.side.displayName} · ${ticket.variant.displayName} · $limit" + if (ticket.inferno) " · Inferno" else ""
 }
 
 @Composable

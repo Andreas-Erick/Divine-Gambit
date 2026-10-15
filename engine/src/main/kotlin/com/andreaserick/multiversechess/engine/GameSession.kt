@@ -101,9 +101,14 @@ data class GameSession(
      * side's turn (see [Inferno.returnSquare]). Null if it can't return now, or there's no safe
      * square for it. Undo takes it back together with whatever came before this turn.
      */
-    fun free(index: Int): GameSession? {
-        if (!canFree(index)) return null
-        val soul = souls[index]
+    fun free(index: Int): GameSession? = if (canFree(index)) freeFor(index, state.sideToMove) else null
+
+    /** [free], for the soul at [index] of [side], whatever device plays which side. */
+    private fun freeFor(index: Int, side: Side): GameSession? {
+        val soul = souls.getOrNull(index) ?: return null
+        if (!mode.inferno || soul.freed || outcome != Outcome.Ongoing || soul.side != side || state.sideToMove != side || state.turnMoves.isNotEmpty()) {
+            return null
+        }
         val piece = Piece(soul.type, soul.side, moved = true)
         val pos = Inferno.returnSquare(state, piece) ?: return null
         return copy(
@@ -277,7 +282,9 @@ data class GameSession(
      *   leaves the mover's king exposed;
      * - a turn claiming an ending that isn't the mover's win or a stalemate;
      * - a resignation on someone else's behalf, or a claim of having no legal turn by the side
-     *   not to move.
+     *   not to move;
+     * - a piece returning from the Inferno that isn't the sender's, isn't free to return now, or
+     *   lands anywhere but where this device would put it.
      *
      * A claimed checkmate or stalemate isn't searched for here; [confirmsOutcome] checks it.
      * Undo can't go back past an event: the other device has already seen it.
@@ -297,6 +304,12 @@ data class GameSession(
                 if (!allowed) return null
                 start.copy(outcome = event.outcome, undecided = false, selected = null, message = null, previous = null)
             }
+            is OnlineEvent.Free -> {
+                if (sender != toMove) return null
+                val freed = start.freeFor(event.index, sender) ?: return null
+                if (freed.returned != event.at) return null
+                freed.copy(selected = null, message = null, previous = null)
+            }
             is OnlineEvent.Turn -> {
                 if (start.outcome != Outcome.Ongoing || event.moves.isEmpty() || sender != toMove) return null
                 val claimable = event.outcome == Outcome.Ongoing || event.outcome == Outcome.Stalemate || event.outcome == Outcome.Checkmate(sender)
@@ -304,11 +317,13 @@ data class GameSession(
                 var s = start.state
                 val played = ArrayList<Move>()
                 val lines = ArrayList<String>()
+                val taken = ArrayList<Soul>()
                 for ((from, to) in event.moves) {
                     val piece = s.pieceAt(from) ?: return null
                     if (piece.side != s.sideToMove || !s.isPlayable(from.l, from.t)) return null
                     val move = s.legalMovesFrom(from).firstOrNull { it.to == to } ?: return null
                     lines += logLine(s, move)
+                    soulTakenBy(s, move)?.let { taken += it }
                     played += move
                     s = s.apply(move)
                 }
@@ -321,6 +336,8 @@ data class GameSession(
                     undecided = event.undecided,
                     log = start.log + lines,
                     lastTurn = played,
+                    souls = start.souls + taken,
+                    returned = null,
                     previous = null,
                 )
             }
