@@ -53,7 +53,8 @@ object AiGames {
             if (choice == null) {
                 AiTurn(choices[0].moves, null, "${model.name} didn't pick one of the turns, so the engine played its favourite.")
             } else {
-                AiTurn(choices[choice.first].moves, choice.second, null)
+                val moves = choices[choice.first].moves
+                AiTurn(moves, choice.second?.takeIf { AiText.remarkFits(it, moves) }, null)
             }
         } catch (e: AiException) {
             AiTurn(choices[0].moves, null, "${e.message} The engine played instead.")

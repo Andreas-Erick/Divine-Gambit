@@ -60,6 +60,23 @@ object AiText {
         return number - 1 to remark?.ifBlank { null }
     }
 
+    /**
+     * Whether [remark] fits the [moves] played with it: it names no move (such as "e7-e5" or
+     * "Nf6") that isn't among them. A small model sometimes describes a move it didn't choose,
+     * which would only mislead.
+     */
+    fun remarkFits(remark: String, moves: List<Move>): Boolean {
+        val squares = moves.flatMap { listOf(it.from.square.toString(), it.to.square.toString()) }.toSet()
+        // Two squares, as from and to, must both belong to the moves; a piece's letter before a
+        // square names where it goes, which must be one of them.
+        val pairs = MOVE_FROM_TO.findAll(remark).all { it.groupValues[1] in squares && it.groupValues[2] in squares }
+        val pieceMoves = PIECE_TO.findAll(remark).all { it.groupValues[1] in squares }
+        return pairs && pieceMoves
+    }
+
+    private val MOVE_FROM_TO = Regex("""\b([a-h][1-8])\s*(?:-|x|→|to)\s*([a-h][1-8])\b""")
+    private val PIECE_TO = Regex("""\b[KQRBNSUDWYC]x?([a-h][1-8])\b""")
+
     /** A move as the list of choices writes it, such as "(L0 T2) Ng8-f6". */
     private val LISTED_MOVE = Regex("""\(L[+-]?\d+ T\d+\)""")
 
