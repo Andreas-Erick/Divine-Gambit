@@ -3,6 +3,7 @@ package com.andreaserick.multiversechess.engine
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -114,6 +115,18 @@ L-1 T3 f5 > L0 T3 f7"""
         assertEquals(3 to "Developing my knight!", AiText.parseChoice("4\n\"Developing my knight!\"", 6))
         assertNull(AiText.parseChoice("7\nToo far", 6))
         assertNull(AiText.parseChoice("I'd rather not.", 6))
+    }
+
+    @Test
+    fun `a remark naming a move that wasn't played is dropped`() {
+        // Black played e7-e5, as Qwen3 did when it said h7-h6.
+        val e5 = listOf(Move(Pos.of(0, 1, "e7"), Pos.of(0, 1, "e5")))
+        assertFalse(AiText.remarkFits("Black's move: h7-h6.", e5))
+        assertFalse(AiText.remarkFits("Black plays e7-e5 to threaten the center", listOf(Move(Pos.of(0, 1, "g8"), Pos.of(0, 1, "f6")))))
+        assertFalse(AiText.remarkFits("My Nf6 will hold the centre!", e5))
+        assertTrue(AiText.remarkFits("Claiming the centre with e7-e5!", e5))
+        assertTrue(AiText.remarkFits("The pawn to e5 stakes my claim.", e5))
+        assertTrue(AiText.remarkFits("Opening up the kingside with a pawn storm!", e5))
     }
 
     @Test
