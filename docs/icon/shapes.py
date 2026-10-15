@@ -68,3 +68,61 @@ def stars(seed, count, avoid=None):
             continue
         out.append((x, y, rnd.uniform(0.35, 0.8), rnd.uniform(0.35, 0.9)))
     return out
+
+
+def flames(x0, x1, base, height, count, seed, jitter=0.45):
+    """Overlapping tongues of fire rising from [base], each curling as it rises, filled down to
+    below the icon's edge."""
+    rnd = random.Random(seed)
+    step = (x1 - x0) / count
+    parts = [f"M{x0:.2f},{base:.2f}L{x1:.2f},{base:.2f}L{x1:.2f},{base + 40:.2f}L{x0:.2f},{base + 40:.2f}z"]
+    for i in range(count):
+        x = x0 + (i + 0.5) * step + rnd.uniform(-0.25, 0.25) * step
+        half = step * rnd.uniform(0.7, 1.0)
+        h = height * rnd.uniform(1 - jitter, 1)
+        lean = rnd.uniform(-0.5, 0.5) * half
+        tip_x, tip_y = x + lean, base - h
+        parts.append(
+            f"M{x - half:.2f},{base + 1:.2f}"
+            f"C{x - half * 0.95:.2f},{base - h * 0.45:.2f} {tip_x - half * 0.55 - lean * 0.4:.2f},{tip_y + h * 0.42:.2f} {tip_x:.2f},{tip_y:.2f}"
+            f"C{tip_x + half * 0.2 - lean * 0.6:.2f},{tip_y + h * 0.5:.2f} {x + half * 0.95:.2f},{base - h * 0.32:.2f} {x + half:.2f},{base + 1:.2f}z"
+        )
+    return "".join(parts)
+
+
+def bezier(p0, p1, p2, p3, steps=40):
+    """Points along a cubic Bezier curve."""
+    pts = []
+    for i in range(steps + 1):
+        t = i / steps
+        u = 1 - t
+        pts.append((u ** 3 * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t ** 3 * p3[0],
+                    u ** 3 * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t ** 3 * p3[1]))
+    return pts
+
+
+def band(points, w0, w1=None):
+    """A ribbon along [points], [w0] wide at its start, narrowing (or widening) to [w1]."""
+    w1 = w0 if w1 is None else w1
+    left, right = [], []
+    n = len(points)
+    for i, (x, y) in enumerate(points):
+        ax, ay = points[max(i - 1, 0)]
+        bx, by = points[min(i + 1, n - 1)]
+        dx, dy = bx - ax, by - ay
+        length = math.hypot(dx, dy) or 1
+        nx, ny = -dy / length, dx / length
+        w = (w0 + (w1 - w0) * i / (n - 1)) / 2
+        left.append((x + nx * w, y + ny * w))
+        right.append((x - nx * w, y - ny * w))
+    pts = left + right[::-1]
+    return "M" + "L".join(f"{x:.2f},{y:.2f}" for x, y in pts) + "z"
+
+
+def timelines(start, fork, ends, width):
+    """One timeline coming from [start] and branching at [fork] toward each of [ends], the way the
+    game's timelines branch. The branches part right away, so the fork shows clearly."""
+    fx, fy = fork
+    trunk = band(bezier(start, (start[0] + 8, start[1]), (fx - 8, fy), fork), width)
+    branches = [band(bezier(fork, (fx + 5, fy + (ey - fy) * 0.55), (ex - 26, ey), (ex, ey)), width, width * 0.7) for ex, ey in ends]
+    return trunk + "".join(branches)
