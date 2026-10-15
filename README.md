@@ -232,11 +232,13 @@ are better at it.
 Switch on **Inferno** under **Singleplayer** or **Multiplayer** in the menu before starting a game
 against the computer or an AI, or pass and play. A piece that's taken then goes to the Inferno, and its owner can win it back:
 
-* Tap **Descend** under the board. A ring of fire burns open while the board sinks into the dark,
-  and you're in the Inferno: an abyss of smouldering rock, ridge behind ridge, with your taken pieces
-  along the top.
+* Tap **Descend** under the board. With more than one piece taken, a singed scroll unrolls by
+  candlelight first and asks *whose soul will you seek?*: choose the piece your trials will free.
+  Then a ring of fire burns open while the board sinks into the dark, and you're in the Inferno: an
+  abyss of smouldering rock, ridge behind ridge, with your taken pieces along the top.
 * Each piece needs **trials**, puzzles to checkmate in one turn: a pawn one, a knight or bishop two,
-  a rook three, a queen four. Tap a piece to choose which one the trials count for. The trials are
+  a rook three, a queen four. Tap another of your pieces at the top to switch; each keeps the trials
+  it has passed. The trials are
   generated on your phone as you play (the puzzle list fills in until the first are ready);
   **Another** sets one aside.
 * A piece that has passed its trials **returns at the start of your turn** (straight away if it's
