@@ -7,7 +7,7 @@ and the timeline splits; play both futures at once; protect your kings in the pr
 past. Play the computer, a friend on the same phone, or a friend on their own phone, anywhere. And
 if you dare, play with the Inferno, where taken pieces can be won back.
 
-**[Download the latest APK](https://github.com/Andreas-Erick/multiverse-chess/releases/latest)**
+**[Download the latest APK](https://github.com/Andreas-Erick/Divine-Gambit/releases/latest)**
 
 Inspired by *5D Chess With Multiverse Time Travel*. This is an independent fan project. It is not
 affiliated with or endorsed by the original game's developers, and it uses none of the original
@@ -62,7 +62,7 @@ game's code or assets.
 ## Installing
 
 1. On your phone (Android 7.0 or newer), open the
-   [latest release](https://github.com/Andreas-Erick/multiverse-chess/releases/latest) and download the
+   [latest release](https://github.com/Andreas-Erick/Divine-Gambit/releases/latest) and download the
    `.apk` file.
 2. Open it, and allow installing from your browser or file manager when Android asks.
 
