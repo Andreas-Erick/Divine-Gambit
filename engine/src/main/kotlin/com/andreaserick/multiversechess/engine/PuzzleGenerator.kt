@@ -13,9 +13,16 @@ class PuzzleGenerator(
     private val random: Random = Random.Default,
     private val maxMates: Int = 2,
     private val stop: () -> Boolean = { false },
+    /** How many attempts run at once, each on a thread of its own; the first puzzle found wins. */
+    private val threads: Int = 1,
 ) {
     /** A new puzzle numbered [number], or null if none was found (or [stop] cut the search short). */
     fun generate(number: Int): Puzzle? {
+        if (threads > 1) {
+            // Attempts are independent and random, so several at once find one sooner.
+            val seeds = List(threads) { random.nextLong() }
+            return Parallel.first(threads) { i, done -> PuzzleGenerator(Random(seeds[i]), maxMates, { stop() || done() }).generate(number) }
+        }
         // About half the puzzles start from more than one timeline, if one turns up soon enough.
         if (random.nextBoolean()) {
             for (attempt in 0 until BRANCHED_ATTEMPTS) {
