@@ -140,14 +140,18 @@ class GameState(
         if (side == Side.WHITE) whiteTimelines + 1 else -(blackTimelines + 1)
 
     /** Moves by [attacker] (from boards [attacker] could play) that would capture a royal piece. */
-    fun kingCaptures(attacker: Side, firstOnly: Boolean = false): List<Move> {
+    fun kingCaptures(attacker: Side, firstOnly: Boolean = false): List<Move> =
+        captures(attacker, firstOnly) { it.type.isRoyal }
+
+    /** Moves by [attacker] (from boards [attacker] could play) that would capture a piece matching [target]. */
+    internal fun captures(attacker: Side, firstOnly: Boolean = false, target: (Piece) -> Boolean = { true }): List<Move> {
         val found = ArrayList<Move>()
         for (timeline in playableTimelines(attacker)) {
             for ((square, piece) in timeline.last.pieces()) {
                 if (piece.side != attacker) continue
                 for (move in generateMoves(Pos(timeline.index, timeline.end, square.x, square.y), capturesOnly = true)) {
-                    val target = pieceAt(move.to)
-                    if (target != null && target.type.isRoyal && target.side != attacker) {
+                    val taken = pieceAt(move.to)
+                    if (taken != null && taken.side != attacker && target(taken)) {
                         found += move
                         if (firstOnly) return found
                     }
@@ -155,6 +159,22 @@ class GameState(
             }
         }
         return found
+    }
+
+    /** The piece [move] would take, if any. */
+    fun capturedBy(move: Move): Piece? =
+        pieceAt(move.to) ?: move.enPassantCapture?.let { boardAt(move.from.l, move.from.t)?.get(it) }
+
+    /**
+     * A copy with [piece] put on [pos], which must be on the latest board of its timeline: how a
+     * piece freed from the [Inferno] returns.
+     */
+    fun withPiece(pos: Pos, piece: Piece): GameState {
+        val timeline = timelines.getValue(pos.l)
+        require(timeline.end == pos.t) { "Not a latest board: $pos" }
+        val board = timeline.last.with(listOf(pos.square to piece), timeline.last.enPassant)
+        val updated = Timeline(timeline.index, timeline.start, timeline.boards.dropLast(1) + board, timeline.parent)
+        return GameState(timelines + (pos.l to updated), sideToMove, turnMoves, timelineLimit)
     }
 
     /** True if, were [side] to submit now, the opponent could capture one of [side]'s kings. */
