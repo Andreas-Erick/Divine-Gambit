@@ -167,7 +167,7 @@ internal fun OnlinePage(onBack: () -> Unit, modifier: Modifier, content: @Compos
 private fun share(context: Context, link: String) {
     val send = Intent(Intent.ACTION_SEND)
         .setType("text/plain")
-        .putExtra(Intent.EXTRA_TEXT, "Play Multiverse Chess with me: $link")
+        .putExtra(Intent.EXTRA_TEXT, "Play Divine Gambit with me: $link")
     context.startActivity(Intent.createChooser(send, "Invite a friend"))
 }
 

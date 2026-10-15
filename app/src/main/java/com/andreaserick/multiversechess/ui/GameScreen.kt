@@ -45,7 +45,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -81,6 +84,15 @@ fun GameScreen(
     onStartPuzzle: (Puzzle) -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
+    /** With the Inferno rule: the player's pieces waiting there. */
+    infernoSouls: List<SoulView> = emptyList(),
+    /** Why the Inferno can't be entered now, or null if it can. */
+    hellClosed: String? = null,
+    /** News from the Inferno, such as a piece returning. */
+    infernoNotice: String? = null,
+    onEnterInferno: () -> Unit = {},
+    /** Where the way into the Inferno is, for the portal to open from. */
+    onInfernoPlaced: (Offset) -> Unit = {},
 ) {
     val camera = remember { CameraState() }
     val scope = rememberCoroutineScope()
@@ -156,7 +168,7 @@ fun GameScreen(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    puzzle?.title ?: session.mode.variant.displayName.let { if (it == "Standard") "Multiverse Chess" else it },
+                    puzzle?.title ?: session.mode.variant.displayName.let { if (it == "Standard") "Divine Gambit" else it },
                     style = MaterialTheme.typography.titleLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -167,7 +179,7 @@ fun GameScreen(
                         online != null -> "Online · ${online.nameOf(online.ticket.side)} vs ${online.opponentName}"
                         session.mode.computerSide != null -> "vs ${aiName ?: "computer"}"
                         else -> "Pass and play"
-                    },
+                    } + if (session.mode.inferno) " · Inferno" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.inkSoft,
                 )
@@ -251,6 +263,10 @@ fun GameScreen(
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     StatusLine(session, thinking || sending, online, aiName)
                     online?.let { OnlineNote(it, session) }
+                    AnimatedVisibility(infernoNotice != null) {
+                        Text(infernoNotice.orEmpty(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Palette.gold)
+                    }
+                    if (session.mode.inferno && ongoing) InfernoBar(infernoSouls, hellClosed, onEnterInferno, onInfernoPlaced)
                     aiRemark?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = Palette.ink)
                     }
@@ -405,6 +421,42 @@ private fun StatusLine(session: GameSession, thinking: Boolean, online: OnlineSt
                     .padding(horizontal = 10.dp, vertical = 4.dp),
             )
         }
+    }
+}
+
+/** The way into the Inferno, with the pieces waiting there and their trials. */
+@Composable
+private fun InfernoBar(souls: List<SoulView>, closed: String?, onEnter: () -> Unit, onPlaced: (Offset) -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(FlameIcon, contentDescription = null, tint = Palette.flame, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (souls.isEmpty()) "Inferno" else "Inferno · " + souls.joinToString("  ") { "${pieceSymbol(it.soul.type)} ${it.solved}/${it.soul.trials}" },
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                when {
+                    souls.isEmpty() -> "Taken pieces go here. Solve trials to win them back."
+                    closed != null -> closed
+                    else -> "Solve trials to win your pieces back."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = Palette.inkSoft,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        PrimaryPill(
+            onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onEnter()
+            },
+            enabled = closed == null,
+            modifier = Modifier.onGloballyPositioned { onPlaced(it.boundsInRoot().center) },
+        ) { Text("Descend") }
     }
 }
 

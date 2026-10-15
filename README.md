@@ -1,10 +1,11 @@
 <p align="center"><img src="docs/screenshots/icon.png" width="128" alt="The app icon: a knight bursting out of a gold-ringed portal onto a swirling board"></p>
 
-# Multiverse Chess (Android)
+# Divine Gambit (Android)
 
 Chess with time travel and parallel timelines, for Android. Send a knight two turns into the past
 and the timeline splits; play both futures at once; protect your kings in the present *and* the
-past. Play the computer, a friend on the same phone, or a friend on their own phone, anywhere.
+past. Play the computer, a friend on the same phone, or a friend on their own phone, anywhere. And
+if you dare, play with the Inferno, where taken pieces can be won back.
 
 **[Download the latest APK](https://github.com/Andreas-Erick/multiverse-chess/releases/latest)**
 
@@ -13,7 +14,7 @@ affiliated with or endorsed by the original game's developers, and it uses none 
 game's code or assets.
 
 <p align="center">
-  <img src="docs/screenshots/menu.png" width="250" alt="Main menu: a turning checkerboard vortex among the stars, over a night-blue card of game options with an AI opponent chosen">
+  <img src="docs/screenshots/menu.png" width="250" alt="Main menu: Divine Gambit over a turning checkerboard vortex among the stars, with Singleplayer, Multiplayer and Puzzles">
   <img src="docs/screenshots/time-travel.png" width="250" alt="A knight's jump back in time, drawn as an arrow from timeline +1 into the past of timeline 0, which branches timeline -1">
   <img src="docs/screenshots/overview.png" width="250" alt="Overview of a game with three timelines branching from the original">
 </p>
@@ -25,6 +26,7 @@ game's code or assets.
 * [How to play](#how-to-play)
 * [Playing a friend online](#playing-a-friend-online)
 * [AI opponent](#ai-opponent)
+* [The Inferno](#the-inferno)
 * [Variants](#variants)
 * [Puzzles](#puzzles)
 * [How the rules are checked](#how-the-rules-are-checked)
@@ -52,6 +54,8 @@ game's code or assets.
 * **Six puzzles** that teach the core ideas, each checked by an exhaustive solver, **new puzzles
   generated on your phone** once you've solved them all, and **puzzles designed by your AI**, checked
   the same way.
+* **The Inferno**, an optional rule: taken pieces go to the Inferno, and you win them back by
+  solving puzzles there while the game goes on.
 * **Nothing gets lost:** your game is saved as you play, **Continue game** picks it up after the app
   is closed, and an online game waits for both of you to come back.
 
@@ -161,7 +165,7 @@ Without a piece selected, the History and Parallel views use the first board you
   <img src="docs/screenshots/online-game.png" width="250" alt="An online game between Andreas and Maria after a knight's jump back in time, waiting for Maria's turn">
 </p>
 
-1. Choose the variant and timeline limit in the menu, tap **Invite a friend**, enter your name and
+1. In the menu, open **Multiplayer**, choose the variant and timeline limit, tap **Invite a friend**, enter your name and
    pick your side.
 2. **Share** the link with your friend (or tell them the code).
 3. When they open the link, the app opens on their phone and shows who's inviting them. They
@@ -171,6 +175,8 @@ Without a piece selected, the History and Parallel views use the first board you
 
 Your names are shown to each other during the game. You don't need to stay in the app: either of
 you can leave or close it, and **Continue game with a friend** in the menu picks the game up again.
+Its **×** forgets the game on this phone, for an invitation you never sent; your friend isn't told,
+so to end a game you've both played, resign in it instead.
 Turns made meanwhile arrive when you're back, and a turn sent while the connection is down goes
 through once it's restored. **Undo** only takes back moves you haven't submitted yet.
 
@@ -199,7 +205,7 @@ claim a checkmate that isn't one.
 | **A model on your computer** | [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com), serving on your network (in LM Studio: Developer › start the server, and turn on *Serve on Local Network*; for Ollama, `OLLAMA_HOST=0.0.0.0`). | Enter the computer's address, e.g. `http://192.168.1.20:1234`, and pick a model. Android asks once to allow access to your local network. |
 | **A model on this phone** | A download: Gemma 4 E2B (2.6 GB, plays and designs best) or Qwen3 0.6B (613 MB, quick but weak). | Runs offline with Google's LiteRT-LM. Needs a 64-bit phone and plenty of free memory. |
 
-Then choose it as the **Opponent** in the menu. The engine finds the most promising legal turns and
+Then choose it as the **Opponent** under **Singleplayer** in the menu. The engine finds the most promising legal turns and
 the model picks one of them, with a sentence about it, so it never breaks the rules; whether it
 plays well is up to the model. If it fails to answer, or takes too long, the engine plays its
 favourite turn and says so.
@@ -216,9 +222,38 @@ In testing, a 14B model on a computer could follow the format but rarely produce
 so most of its puzzles were the engine's with its titles and hints; larger models such as Gemini
 are better at it.
 
+## The Inferno
+
+<p align="center">
+  <img src="docs/screenshots/inferno-board.png" width="250" alt="A pass and play game with the Inferno: Black's pawn has been taken, and the Inferno row under the board shows it with 0 of 1 trials and a Descend button">
+  <img src="docs/screenshots/inferno.png" width="250" alt="The Inferno: two boards of ash and brick over glowing ridges of rock and drifting smoke, the title glowing like a coal, a clock at 1:27 and the pawn waiting for its trial">
+</p>
+
+Switch on **Inferno** under **Singleplayer** or **Multiplayer** in the menu before starting a game
+against the computer or an AI, or pass and play. A piece that's taken then goes to the Inferno, and its owner can win it back:
+
+* Tap **Descend** under the board. A ring of fire burns open while the board sinks into the dark,
+  and you're in the Inferno: an abyss of smouldering rock, ridge behind ridge, with your taken pieces
+  along the top.
+* Each piece needs **trials**, puzzles to checkmate in one turn: a pawn one, a knight or bishop two,
+  a rook three, a queen four. Tap a piece to choose which one the trials count for. The trials are
+  generated on your phone as you play (the puzzle list fills in until the first are ready);
+  **Another** sets one aside.
+* A piece that has passed its trials **returns at the start of your turn** (straight away if it's
+  your turn and you haven't moved yet), on a square near home where the opponent couldn't take it
+  if you passed and from which it doesn't attack a king. It's marked in ember on the board.
+* The game goes on meanwhile. While it's your turn on the board you have **90 seconds** in the
+  Inferno per turn; then you're sent back to play, and can return after your turn. While the
+  computer or AI thinks, the clock stops, so that time is free.
+* If the computer moves while you're in the Inferno you're told it's your turn, and if the game
+  ends you're told how, and taken back to the board.
+
+The Inferno is saved with the game. It isn't available online yet: both phones would have to agree
+on when a piece returns, which needs a change to the relay.
+
 ## Variants
 
-Pick a variant in the menu before starting a game. Fairy pieces are drawn as discs with their
+Pick a variant under **Singleplayer** or **Multiplayer** in the menu before starting a game. Fairy pieces are drawn as discs with their
 letter: S, U, D, W, Y or C.
 
 | Variant | Setup |
