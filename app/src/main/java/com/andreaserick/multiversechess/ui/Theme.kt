@@ -24,8 +24,9 @@ import androidx.compose.ui.unit.sp
 import com.andreaserick.multiversechess.R
 
 /**
- * Colours of the multiverse view and the app chrome, "midnight cosmos": the boards lie on a deep
- * indigo night, timelines run as teal ribbons, and gold marks what must be played.
+ * Colours of the multiverse view and the app chrome, "the heavens": the boards lie on a deep
+ * indigo night, timelines run as teal ribbons, gold marks what must be played, and the app's
+ * controls are gold too, like the light of Dante's Paradise.
  *
  * In the Inferno everything burns instead: boards of ash and brick on a smouldering floor, rivers
  * of lava for timelines, and flame for the accents. [heat] blends from one to the other, so the
@@ -85,8 +86,11 @@ internal object Palette {
     val ribbonInactive get() = mix(0xFF39475F, 0xFF5C3027)
 
     // Accents and highlights, and the text drawn on them.
-    val accent get() = mix(0xFF3FC1B0, 0xFFFF7A3D)
-    val onAccent get() = mix(0xFF0B1A24, 0xFF2A0B02)
+    val accent get() = mix(0xFFE8C77A, 0xFFFF7A3D)
+    val onAccent get() = mix(0xFF2A1B00, 0xFF2A0B02)
+
+    /** The edge of cards and round buttons: a faint line of gold. */
+    val cardEdge get() = mix(0x66E8C77A, 0xFF6E2C1E)
     val gold get() = mix(0xFFE8B04B, 0xFFFFC94A)
     val onGold get() = mix(0xFF2A1B00, 0xFF2A1700)
     val lastMove get() = mix(0xA6E8D35C, 0xA6FFD15C)
@@ -139,8 +143,8 @@ private fun colors(h: Float) = Palette.at(h) { scheme(h) }
 private fun scheme(h: Float) = darkColorScheme(
     primary = Palette.accent,
     onPrimary = Palette.onAccent,
-    primaryContainer = lerp(Color(0xFF184A47), Color(0xFF5A2410), h),
-    onPrimaryContainer = lerp(Color(0xFFB9F2E9), Color(0xFFFFD9C2), h),
+    primaryContainer = lerp(Color(0xFF4A3812), Color(0xFF5A2410), h),
+    onPrimaryContainer = lerp(Color(0xFFFBE2B0), Color(0xFFFFD9C2), h),
     secondary = Palette.gold,
     onSecondary = Palette.onGold,
     secondaryContainer = Color(0xFF4A3812),

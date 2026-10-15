@@ -3,12 +3,6 @@ package com.andreaserick.multiversechess.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -21,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -60,12 +55,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,11 +78,6 @@ import com.andreaserick.multiversechess.engine.Notation
 import com.andreaserick.multiversechess.engine.Side
 import com.andreaserick.multiversechess.engine.Variant
 import com.andreaserick.multiversechess.online.Ticket
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.hypot
-import kotlin.math.sin
-import kotlin.random.Random
 
 /** Which page of the menu's card is showing. */
 private enum class MenuPage { HOME, SINGLE, MULTI }
@@ -121,11 +118,15 @@ fun MenuScreen(
     var inferno by rememberSaveable { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var confirmDiscardOnline by remember { mutableStateOf(false) }
+    var titleCenter by remember { mutableStateOf<Offset?>(null) }
+    var cardBottom by remember { mutableStateOf<Float?>(null) }
 
     BackHandler(enabled = page != MenuPage.HOME) { page = MenuPage.HOME }
 
     Box(modifier.fillMaxSize()) {
-        TimeVortex(Modifier.fillMaxSize())
+        // The timeline branches a little below the card, but never into the warmth at the bottom.
+        val forkGap = with(LocalDensity.current) { 56.dp.toPx() }
+        Heavens(light = { titleCenter }, fork = { cardBottom?.plus(forkGap) }, modifier = Modifier.fillMaxSize())
         Column(
             Modifier
                 .fillMaxSize()
@@ -135,22 +136,43 @@ fun MenuScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(48.dp))
-            Text("Divine", style = MaterialTheme.typography.displayMedium, color = Palette.ink)
-            Text(
-                "G A M B I T",
-                style = MaterialTheme.typography.titleLarge,
-                color = Palette.accent,
-            )
+            // The heavens' light shines behind the title.
+            Column(
+                Modifier.onGloballyPositioned { titleCenter = it.boundsInRoot().center },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "Divine",
+                    style = MaterialTheme.typography.displayMedium.copy(shadow = Shadow(Color(0x73FFE29A), blurRadius = 48f)),
+                    color = Palette.ink,
+                )
+                Text(
+                    "G A M B I T",
+                    style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(Color(0x59E8C77A), blurRadius = 24f)),
+                    color = Palette.accent,
+                )
+            }
             Spacer(Modifier.height(12.dp))
             Text(
-                "Move through time. Branch the timelines.\nProtect your kings in the present and the past.",
+                "Move through time. Branch the timelines.\nDescend, and win back the fallen.",
                 style = MaterialTheme.typography.bodyMedium,
+                fontStyle = FontStyle.Italic,
                 color = Palette.inkSoft,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(36.dp))
+            Ornament(Modifier.padding(top = 16.dp, bottom = 20.dp))
 
-            SlabCard(Modifier.widthIn(max = 440.dp).fillMaxWidth()) {
+            SlabCard(
+                Modifier
+                    .widthIn(max = 440.dp)
+                    .fillMaxWidth()
+                    .onGloballyPositioned { cardBottom = it.boundsInRoot().bottom }
+                    .drawWithContent {
+                        drawContent()
+                        // The card's own corners, inside the slab beneath it (5 and 6 dp).
+                        drawCardFlourishes(inset = 9.dp.toPx(), length = 18.dp.toPx(), insetEnd = 14.5.dp.toPx())
+                    },
+            ) {
                 // Pages slide in from the right going in, and back out to the right going home.
                 AnimatedContent(
                     page,
@@ -196,14 +218,15 @@ fun MenuScreen(
                                     ) { confirmDiscardOnline = true }
                                 }
                                 if (resumable != null || (canPlayOnline && resumableOnline != null)) {
-                                    HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
+                                    HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.cardEdge)
                                 }
-                                MenuChoice("Singleplayer", "Against the computer or an AI.") { page = MenuPage.SINGLE }
+                                val nothingToContinue = resumable == null && !(canPlayOnline && resumableOnline != null)
+                                MenuChoice("Singleplayer", "Against the computer or an AI.", primary = nothingToContinue) { page = MenuPage.SINGLE }
                                 MenuChoice(
                                     "Multiplayer",
                                     if (canPlayOnline) "Pass and play on this phone, or a friend online." else "Pass and play on this phone.",
                                 ) { page = MenuPage.MULTI }
-                                HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.presentEdge.copy(alpha = 0.6f))
+                                HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.cardEdge)
                                 SecondaryPill(onClick = onPuzzles, modifier = Modifier.fillMaxWidth()) {
                                     Text("Puzzles")
                                     Spacer(Modifier.weight(1f))
@@ -376,13 +399,44 @@ private fun ResumeRow(title: String, summary: String, discardLabel: String, onCo
 
 /** A way into one of the menu's pages: its name, what's in it, and an arrow. */
 @Composable
-private fun MenuChoice(title: String, description: String, onClick: () -> Unit) {
-    SecondaryPill(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+private fun MenuChoice(title: String, description: String, primary: Boolean = false, onClick: () -> Unit) {
+    val content: @Composable RowScope.() -> Unit = {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(description, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (primary) Palette.onAccent.copy(alpha = 0.72f) else Palette.inkSoft,
+            )
         }
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Palette.inkSoft)
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = if (primary) Palette.onAccent else Palette.accent)
+    }
+    if (primary) {
+        PrimaryPill(onClick = onClick, modifier = Modifier.fillMaxWidth(), content = content)
+    } else {
+        SecondaryPill(onClick = onClick, modifier = Modifier.fillMaxWidth(), content = content)
+    }
+}
+
+/** A divider of gold, as in an old book: two fading lines and a diamond between them. */
+@Composable
+private fun Ornament(modifier: Modifier = Modifier) {
+    Canvas(modifier.size(width = 160.dp, height = 12.dp)) {
+        val gold = Color(0xFFE8C77A).copy(alpha = 0.85f)
+        val mid = center
+        val half = 4.dp.toPx()
+        val gap = 10.dp.toPx()
+        val line = 64.dp.toPx()
+        drawLine(Brush.horizontalGradient(listOf(Color.Transparent, gold), mid.x - gap - line, mid.x - gap), Offset(mid.x - gap - line, mid.y), Offset(mid.x - gap, mid.y), 1.dp.toPx())
+        drawLine(Brush.horizontalGradient(listOf(gold, Color.Transparent), mid.x + gap, mid.x + gap + line), Offset(mid.x + gap, mid.y), Offset(mid.x + gap + line, mid.y), 1.dp.toPx())
+        val diamond = Path().apply {
+            moveTo(mid.x, mid.y - half)
+            lineTo(mid.x + half, mid.y)
+            lineTo(mid.x, mid.y + half)
+            lineTo(mid.x - half, mid.y)
+            close()
+        }
+        drawPath(diamond, gold, style = Stroke(1.5.dp.toPx()))
     }
 }
 
@@ -406,83 +460,6 @@ private fun SettingRow(title: String, description: String, control: @Composable 
         }
         Spacer(Modifier.width(12.dp))
         control()
-    }
-}
-
-/**
- * A slowly turning checkerboard bent into a logarithmic spiral, receding toward a glowing
- * vanishing point among the stars: the board falling through time.
- */
-@Composable
-private fun TimeVortex(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "vortex")
-    val turn by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(90_000, easing = LinearEasing), RepeatMode.Restart),
-        label = "turn",
-    )
-    val night = Palette.background
-    val band = Color(0xFF1D2250)
-    val glow = Palette.accent
-    val path = remember { Path() }
-    // Stars, as fractions of the screen: the same sky every time.
-    val stars = remember {
-        val random = Random(5)
-        List(90) { Triple(Offset(random.nextFloat(), random.nextFloat()), 0.6f + random.nextFloat() * 1.4f, 0.25f + random.nextFloat() * 0.6f) }
-    }
-    Canvas(modifier) {
-        drawRect(night)
-        for ((at, radius, alpha) in stars) {
-            drawCircle(Color.White.copy(alpha = alpha), radius.dp.toPx(), Offset(at.x * size.width, at.y * size.height))
-        }
-        val center = Offset(size.width * 0.5f, size.height * 0.24f)
-        val maxRadius = hypot(size.width, size.height)
-        val sectors = 16
-        val growth = 1.17f
-        val twist = 0.2f
-        val sweep = 2 * PI.toFloat() / sectors
-        var r = 4f
-        var ring = 0
-        // Rings grow geometrically, and each is turned a little further than the one inside it.
-        while (r < maxRadius) {
-            val next = r * growth
-            for (k in 0 until sectors) {
-                if ((k + ring) % 2 == 0) continue
-                val a0 = (k.toFloat() / sectors + turn) * 2 * PI.toFloat() + ring * twist
-                path.reset()
-                val steps = 5
-                for (i in 0..steps) {
-                    val a = a0 + sweep * i / steps
-                    val p = center + Offset(cos(a), sin(a)) * r
-                    if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
-                }
-                for (i in steps downTo 0) {
-                    val a = a0 + twist + sweep * i / steps
-                    val p = center + Offset(cos(a), sin(a)) * next
-                    path.lineTo(p.x, p.y)
-                }
-                path.close()
-                drawPath(path, band, alpha = 0.85f)
-            }
-            r = next
-            ring++
-        }
-        // A glow at the vanishing point, and night toward the bottom so the menu stays readable.
-        drawRect(
-            Brush.radialGradient(
-                listOf(glow.copy(alpha = 0.55f), glow.copy(alpha = 0.12f), glow.copy(alpha = 0f)),
-                center = center,
-                radius = size.minDimension * 0.3f,
-            ),
-        )
-        drawRect(
-            Brush.verticalGradient(
-                0f to Color.Transparent,
-                0.4f to Palette.background.copy(alpha = 0.3f),
-                1f to Palette.background.copy(alpha = 0.95f),
-            ),
-        )
     }
 }
 
