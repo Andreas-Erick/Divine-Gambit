@@ -42,6 +42,50 @@ internal object Directions {
             }
         }
     }
+
+    /**
+     * The directions of each list by their step through time and timelines ([timeAxes]), so the
+     * ones along a given line can be found without looking at the rest. Built once and only read
+     * afterwards, so searches on several threads can share it.
+     */
+    private val grouped = java.util.IdentityHashMap<List<Vec>, Map<Int, List<Vec>>>().apply {
+        for (list in listOf(rook, bishop, queen, princess, unicorn, dragon, knight)) put(list, list.groupBy { timeAxes(it.dl, it.dt) })
+    }
+
+    fun along(directions: List<Vec>): Map<Int, List<Vec>> = grouped.getValue(directions)
+}
+
+/** A key for a step of [dl] timelines and [dt] turns. */
+internal fun timeAxes(dl: Int, dt: Int): Int = (dl + 8) * 32 + (dt + 8)
+
+/**
+ * The lines through time and timelines along which a piece on one board could reach some other
+ * boards (see [GameState.isInCheckAfter]): the steps of a sliding piece ([slide]), the exact jumps
+ * of one that doesn't ([jump]), and the [boards] themselves, for pawns.
+ */
+internal class Lines(val slide: Set<Int>, val jump: Set<Int>, val boards: List<BoardId>) {
+    val isEmpty: Boolean get() = slide.isEmpty() && jump.isEmpty()
+
+    /** Whether one of the boards is within a pawn's reach: a timeline and a turn away at most. */
+    val nearby: Boolean = jump.any { key -> kotlin.math.abs(key / 32 - 8) <= 1 && kotlin.math.abs(key % 32 - 8) <= 1 }
+
+    companion object {
+        /** The lines from board [from] to each of [boards] (which have the same side to move). */
+        fun between(from: BoardId, boards: List<BoardId>): Lines {
+            val slide = HashSet<Int>()
+            val jump = HashSet<Int>()
+            for (board in boards) {
+                val dl = board.l - from.l
+                val diff = board.t - from.t
+                if (diff % 2 != 0 || (dl == 0 && diff == 0)) continue
+                val dt = diff / 2
+                jump += timeAxes(dl, dt)
+                // A slide covers equal steps along each axis it moves on.
+                if (dl == 0 || dt == 0 || kotlin.math.abs(dl) == kotlin.math.abs(dt)) slide += timeAxes(Integer.signum(dl), Integer.signum(dt))
+            }
+            return Lines(slide, jump, boards)
+        }
+    }
 }
 
 /**
@@ -49,24 +93,39 @@ internal object Directions {
  * the mover's kings end up capturable (that's checked when the turn is submitted).
  * With [capturesOnly], only moves that capture are returned (used for check detection).
  */
-internal fun GameState.generateMoves(from: Pos, capturesOnly: Boolean): List<Move> {
+internal fun GameState.generateMoves(from: Pos, capturesOnly: Boolean): List<Move> = generateMoves(from, capturesOnly, through = null)
+
+/**
+ * Like [generateMoves], but with [through], only the moves along those lines: the ones whose path
+ * crosses or ends on one of its boards (see [GameState.isInCheckAfter]).
+ */
+internal fun GameState.generateMoves(from: Pos, capturesOnly: Boolean, through: Lines?): List<Move> {
     val board = boardAt(from.l, from.t) ?: return emptyList()
     val piece = board[from.x, from.y] ?: return emptyList()
     val out = ArrayList<Move>()
+    fun rays(directions: List<Vec>, slide: Boolean) {
+        if (through == null) return addRays(from, piece.side, directions, slide, capturesOnly, out)
+        val groups = Directions.along(directions)
+        for (key in if (slide) through.slide else through.jump) groups[key]?.let { addRays(from, piece.side, it, slide, capturesOnly, out) }
+    }
     when (piece.type) {
         PieceType.KING -> {
-            addRays(from, piece.side, Directions.queen, slide = false, capturesOnly, out)
+            rays(Directions.queen, slide = false)
             if (!capturesOnly) addCastling(from, board, piece, out)
         }
-        PieceType.COMMON_KING -> addRays(from, piece.side, Directions.queen, slide = false, capturesOnly, out)
-        PieceType.QUEEN, PieceType.ROYAL_QUEEN -> addRays(from, piece.side, Directions.queen, slide = true, capturesOnly, out)
-        PieceType.ROOK -> addRays(from, piece.side, Directions.rook, slide = true, capturesOnly, out)
-        PieceType.BISHOP -> addRays(from, piece.side, Directions.bishop, slide = true, capturesOnly, out)
-        PieceType.KNIGHT -> addRays(from, piece.side, Directions.knight, slide = false, capturesOnly, out)
-        PieceType.PRINCESS -> addRays(from, piece.side, Directions.princess, slide = true, capturesOnly, out)
-        PieceType.UNICORN -> addRays(from, piece.side, Directions.unicorn, slide = true, capturesOnly, out)
-        PieceType.DRAGON -> addRays(from, piece.side, Directions.dragon, slide = true, capturesOnly, out)
-        PieceType.PAWN, PieceType.BRAWN -> addPawnMoves(from, board, piece, capturesOnly, out)
+        PieceType.COMMON_KING -> rays(Directions.queen, slide = false)
+        PieceType.QUEEN, PieceType.ROYAL_QUEEN -> rays(Directions.queen, slide = true)
+        PieceType.ROOK -> rays(Directions.rook, slide = true)
+        PieceType.BISHOP -> rays(Directions.bishop, slide = true)
+        PieceType.KNIGHT -> rays(Directions.knight, slide = false)
+        PieceType.PRINCESS -> rays(Directions.princess, slide = true)
+        PieceType.UNICORN -> rays(Directions.unicorn, slide = true)
+        PieceType.DRAGON -> rays(Directions.dragon, slide = true)
+        PieceType.PAWN, PieceType.BRAWN -> {
+            addPawnMoves(from, board, piece, capturesOnly, out)
+            // A pawn never passes through a board, so only where it lands matters.
+            if (through != null) out.removeAll { BoardId(it.to.l, it.to.t) !in through.boards }
+        }
     }
     // At the timeline limit, moves that would branch a new timeline aren't allowed.
     if (atTimelineLimit(piece.side)) out.removeAll { it.branches(this) }
