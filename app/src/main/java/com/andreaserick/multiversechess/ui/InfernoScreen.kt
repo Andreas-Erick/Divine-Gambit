@@ -517,7 +517,7 @@ private fun ridge(u: Float, seed: Float): Float =
     0.5f + 0.28f * sin(u + seed) + 0.16f * sin(u * 2.3f + seed * 1.7f) + 0.22f * (0.5f - abs(sin(u * 4.1f + seed * 2.9f)))
 
 /** A fixed pseudo-random number from 0 to 1 for item [i]'s property [k]. */
-private fun hash(i: Int, k: Int): Float {
+internal fun hash(i: Int, k: Int): Float {
     val v = sin(i * 12.9898f + k * 78.233f) * 43758.547f
     return v - floor(v)
 }

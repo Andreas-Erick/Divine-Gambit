@@ -62,6 +62,7 @@ import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Puzzle
 import com.andreaserick.multiversechess.engine.Side
 import com.andreaserick.multiversechess.online.OnlineStatus
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -90,7 +91,11 @@ fun GameScreen(
     hellClosed: String? = null,
     /** News from the Inferno, such as a piece returning. */
     infernoNotice: String? = null,
-    onEnterInferno: () -> Unit = {},
+    /**
+     * Descends, with the trials counting for the soul at the index given (the game's choice if
+     * null), the fire breaking through from the point given (the Descend button if null).
+     */
+    onEnterInferno: (Int?, Offset?) -> Unit = { _, _ -> },
     /** Where the way into the Inferno is, for the portal to open from. */
     onInfernoPlaced: (Offset) -> Unit = {},
 ) {
@@ -104,6 +109,8 @@ fun GameScreen(
     var confirmSolution by remember { mutableStateOf(false) }
     var dismissedOutcome by remember { mutableStateOf<Outcome?>(null) }
     var slice by remember { mutableStateOf<SliceView?>(null) }
+    var choosingSoul by remember { mutableStateOf(false) }
+    var soulChosen by remember { mutableStateOf(false) }
     val puzzle = session.mode.puzzle
     val state = session.state
     val ongoing = session.outcome == Outcome.Ongoing
@@ -266,7 +273,12 @@ fun GameScreen(
                     AnimatedVisibility(infernoNotice != null) {
                         Text(infernoNotice.orEmpty(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Palette.gold)
                     }
-                    if (session.mode.inferno && ongoing) InfernoBar(infernoSouls, hellClosed, onEnterInferno, onInfernoPlaced)
+                    if (session.mode.inferno && ongoing) {
+                        InfernoBar(infernoSouls, hellClosed, onInfernoPlaced) {
+                            // With more than one piece to seek, the player chooses first.
+                            if (infernoSouls.count { !it.free } > 1) choosingSoul = true else onEnterInferno(null, null)
+                        }
+                    }
                     aiRemark?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = Palette.ink)
                     }
@@ -293,6 +305,25 @@ fun GameScreen(
                     }
                 }
             }
+        }
+
+        if (choosingSoul) {
+            SoulScroll(
+                infernoSouls,
+                onChoose = { soul, from ->
+                    // The scroll stays for the descent, so the fire burns through it, and goes once
+                    // the Inferno covers it.
+                    soulChosen = true
+                    onEnterInferno(soul, from)
+                    scope.launch {
+                        delay(SCROLL_BURNS_MILLIS)
+                        choosingSoul = false
+                        soulChosen = false
+                    }
+                },
+                onDismiss = { choosingSoul = false },
+                active = !soulChosen,
+            )
         }
     }
 
@@ -424,9 +455,12 @@ private fun StatusLine(session: GameSession, thinking: Boolean, online: OnlineSt
     }
 }
 
+/** How long the scroll stays after a choice: as long as the descent through it takes. */
+private const val SCROLL_BURNS_MILLIS = 1_600L
+
 /** The way into the Inferno, with the pieces waiting there and their trials. */
 @Composable
-private fun InfernoBar(souls: List<SoulView>, closed: String?, onEnter: () -> Unit, onPlaced: (Offset) -> Unit) {
+private fun InfernoBar(souls: List<SoulView>, closed: String?, onPlaced: (Offset) -> Unit, onEnter: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(FlameIcon, contentDescription = null, tint = Palette.flame, modifier = Modifier.size(22.dp))
