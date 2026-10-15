@@ -31,7 +31,7 @@ import com.andreaserick.multiversechess.engine.Side
 private val PillShape = RoundedCornerShape(50)
 private val PillPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp)
 
-/** The main call to action: a filled teal pill. */
+/** The main call to action: a filled gold pill. */
 @Composable
 fun PrimaryPill(
     onClick: () -> Unit,
@@ -102,7 +102,7 @@ fun RoundIconButton(
         shape = CircleShape,
         color = if (selected) Palette.accent else Palette.card,
         contentColor = tint,
-        border = BorderStroke(1.dp, if (selected) Palette.accent else Palette.presentEdge),
+        border = BorderStroke(1.dp, if (selected) Palette.accent else Palette.cardEdge),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(icon, contentDescription, tint = tint)
@@ -177,7 +177,7 @@ fun SlabCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
             modifier = Modifier.padding(end = 5.dp, bottom = 6.dp),
             shape = MaterialTheme.shapes.large,
             color = Palette.card,
-            border = BorderStroke(1.dp, Palette.presentEdge),
+            border = BorderStroke(1.dp, Palette.cardEdge),
             content = content,
         )
     }
