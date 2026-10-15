@@ -229,8 +229,9 @@ are better at it.
   <img src="docs/screenshots/inferno.png" width="250" alt="The Inferno: two boards of ash and brick over glowing ridges of rock and drifting smoke, the title glowing like a coal, a clock at 1:27 and the pawn waiting for its trial">
 </p>
 
-Switch on **Inferno** under **Singleplayer** or **Multiplayer** in the menu before starting a game
-against the computer or an AI, or pass and play. A piece that's taken then goes to the Inferno, and its owner can win it back:
+Switch on **Inferno** under **Singleplayer** or **Multiplayer** in the menu before starting a game:
+against the computer or an AI, pass and play, or with a friend online. A piece that's taken then
+goes to the Inferno, and its owner can win it back:
 
 * Tap **Descend** under the board. With more than one piece taken, a singed scroll unrolls by
   candlelight first and asks *whose soul will you seek?*: choose the piece your trials will free.
@@ -246,12 +247,13 @@ against the computer or an AI, or pass and play. A piece that's taken then goes 
   if you passed and from which it doesn't attack a king. It's marked in ember on the board.
 * The game goes on meanwhile. While it's your turn on the board you have **90 seconds** in the
   Inferno per turn; then you're sent back to play, and can return after your turn. While the
-  computer or AI thinks, the clock stops, so that time is free.
-* If the computer moves while you're in the Inferno you're told it's your turn, and if the game
+  computer, the AI or your friend thinks, the clock stops, so that time is free.
+* If your opponent moves while you're in the Inferno you're told it's your turn, and if the game
   ends you're told how, and taken back to the board.
 
-The Inferno is saved with the game. It isn't available online yet: both phones would have to agree
-on when a piece returns, which needs a change to the relay.
+The Inferno is saved with the game. Online, each of you has your own Inferno and solves your own
+trials; when a piece returns, your friend's phone places it on the same square and tells them. Both
+of you need version 1.6.0 or newer for a game with the Inferno.
 
 ## Variants
 
@@ -283,8 +285,9 @@ original, and built by replaying a short history so every board in them is consi
 hint, a restart button and a reveal-solution option; a wrong answer is taken back with an example
 of how Black escapes, and solved puzzles are remembered on the device.
 
-Once all six are solved, **Generate a puzzle** makes new ones on the phone, usually within a few
-seconds. It builds a sparse position, plays a few random turns of history (sometimes sending a
+Once all six are solved, **Generate a puzzle** makes new ones on the phone, usually within a
+second or two: several attempts run at once, one on each of the phone's fast cores, and the first
+puzzle found is kept. It builds a sparse position, plays a few random turns of history (sometimes sending a
 piece back in time), and keeps the first position where White has a mate with only one or two
 solutions, preferring mates through time or across timelines. Generated puzzles are kept on the
 device.
@@ -303,7 +306,10 @@ order, allows extra moves on other boards at any point, and explores each positi
 different orders only once. It also abandons any partial turn that already leaves a royal piece
 capturable: within a turn, moves can only add threats, never remove them, because a threat comes
 from a board the opponent can play (which this turn can't touch) against a board that already
-exists (which can't change), and new boards only ever extend a line of attack.
+exists (which can't change), and new boards only ever extend a line of attack. The same reasoning
+makes checking quick: after a move, a new threat must start on a board the move added, or pass
+through or land on one, so only those lines are looked at, not the whole multiverse.
+`IncrementalCheckTest` compares this with the full check on over a hundred thousand positions.
 
 To decide whether a player has any legal turn at all, the search skips moves on other boards that
 can't help (one that neither branches nor leaves behind a board another move lands on), and in a
@@ -314,7 +320,8 @@ after each turn gets up to three seconds.
 
 The computer looks two turns ahead: it scores its candidate turns, then checks the opponent's
 replies to the most promising ones, takes any checkmate it finds, and avoids turns that allow one.
-It thinks for about two seconds at most.
+It checks the replies to several turns at once, one on each of the phone's fast cores, and thinks
+for about two seconds at most.
 
 An AI opponent's turn is checked like any other: the model only chooses a number from a list of
 legal turns (`AiText` and `ComputerPlayer.shortlist`), and puzzles it designs go through

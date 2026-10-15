@@ -101,6 +101,8 @@ class SoulView(val index: Int, val soul: Soul, val solved: Int) {
 @Composable
 fun InfernoScreen(
     side: Side,
+    /** The other player, by name online and by side otherwise. */
+    opponent: String,
     souls: List<SoulView>,
     chosen: Int?,
     trial: GameSession?,
@@ -206,7 +208,7 @@ fun InfernoScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                HellClock(seconds, clockRunning, side)
+                HellClock(seconds, clockRunning, opponent)
                 for (soul in souls) SoulChip(soul, selected = soul.index == chosen, onClick = { onChoose(soul.index) })
             }
         }
@@ -303,10 +305,10 @@ fun InfernoScreen(
                 Text(
                     when (ended) {
                         is Outcome.Checkmate ->
-                            if (won) "While you were in the Inferno, the game ended: ${side.opponent.displayName} has no legal turn."
-                            else "While you were in the Inferno, ${ended.winner.displayName} checkmated you."
+                            if (won) "While you were in the Inferno, the game ended: $opponent has no legal turn."
+                            else "While you were in the Inferno, $opponent checkmated you."
                         is Outcome.Resignation ->
-                            if (won) "While you were in the Inferno, ${side.opponent.displayName} resigned."
+                            if (won) "While you were in the Inferno, $opponent resigned."
                             else "While you were in the Inferno, the game was resigned."
                         Outcome.Stalemate -> "While you were in the Inferno, the game ended in stalemate."
                         Outcome.Ongoing -> ""
@@ -319,7 +321,7 @@ fun InfernoScreen(
 
 /** Time left in the Inferno; paused, with whose turn it is, while the opponent plays. */
 @Composable
-private fun HellClock(seconds: Int, running: Boolean, side: Side) {
+private fun HellClock(seconds: Int, running: Boolean, opponent: String) {
     val low = running && seconds <= 15
     val pulse = if (!low) 1f else rememberInfiniteTransition(label = "clock").animateFloat(
         initialValue = 1f,
@@ -339,7 +341,7 @@ private fun HellClock(seconds: Int, running: Boolean, side: Side) {
                 color = if (low) Palette.threat else Palette.ink,
             )
             Text(
-                if (running) "your turn" else "${side.opponent.displayName}'s turn",
+                if (running) "your turn" else "$opponent's turn",
                 style = MaterialTheme.typography.labelSmall,
                 color = Palette.inkSoft,
             )

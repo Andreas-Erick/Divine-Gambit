@@ -12,15 +12,15 @@
 // Each player gives a name for the game (1 to 20 characters), shown to the other player.
 //
 // HTTP:
-//   POST /api/rooms           {variant, limit, side, name} -> {code, token, side, variant, limit}
-//   GET  /api/rooms/CODE      -> {hostName, side, variant, limit, full}: the invitation, side being the host's
+//   POST /api/rooms           {variant, limit, side, name, inferno} -> {code, token, side, variant, limit, inferno}
+//   GET  /api/rooms/CODE      -> {hostName, side, variant, limit, inferno, full}: the invitation, side being the host's
 //   POST /api/rooms/CODE/join {name}                       -> the same as creating, for the other seat
 //   GET  /api/rooms/CODE/socket (Authorization: Bearer TOKEN) -> WebSocket
 //   GET  /join/CODE                                        -> invitation page (the shared link)
 //   GET  /.well-known/assetlinks.json                      -> lets /join/ links open the app
 //
 // WebSocket, server to client:
-//   {type: "hello", side, variant, limit, joined, opponent, names: {WHITE, BLACK}, events: [{side, event}, ...]}
+//   {type: "hello", side, variant, limit, inferno, joined, opponent, names: {WHITE, BLACK}, events: [{side, event}, ...]}
 //   {type: "event", index, side, event} an event was added (also the sender's own, as its receipt)
 //   {type: "joined", name}              the second player took their seat
 //   {type: "presence", opponent}        the opponent connected or went away
@@ -118,14 +118,21 @@ export class Room extends DurableObject {
     const meta = { ...game, hostName: name, guestName: null, hostToken: crypto.randomUUID(), guestToken: null, count: 0 };
     await this.ctx.storage.put("meta", meta);
     await this.touch();
-    return { token: meta.hostToken, side: meta.side, variant: meta.variant, limit: meta.limit };
+    return { token: meta.hostToken, side: meta.side, variant: meta.variant, limit: meta.limit, inferno: meta.inferno === true };
   }
 
   /** What someone with the code is invited to, or null if there's no such game. */
   async invitation() {
     const meta = await this.ctx.storage.get("meta");
     if (!meta) return null;
-    return { hostName: meta.hostName, side: meta.side, variant: meta.variant, limit: meta.limit, full: meta.guestToken !== null };
+    return {
+      hostName: meta.hostName,
+      side: meta.side,
+      variant: meta.variant,
+      limit: meta.limit,
+      inferno: meta.inferno === true,
+      full: meta.guestToken !== null,
+    };
   }
 
   /** Gives the second seat to whoever asks first, as [name]. */
@@ -138,7 +145,7 @@ export class Room extends DurableObject {
     await this.ctx.storage.put("meta", meta);
     await this.touch();
     this.broadcast({ type: "joined", name });
-    return { token: meta.guestToken, side: opposite(meta.side), variant: meta.variant, limit: meta.limit };
+    return { token: meta.guestToken, side: opposite(meta.side), variant: meta.variant, limit: meta.limit, inferno: meta.inferno === true };
   }
 
   async fetch(request) {
@@ -163,6 +170,7 @@ export class Room extends DurableObject {
         side: seat === "host" ? meta.side : opposite(meta.side),
         variant: meta.variant,
         limit: meta.limit,
+        inferno: meta.inferno === true,
         joined: meta.guestToken !== null,
         opponent: this.ctx.getWebSockets(other).length > 0,
         names: { [meta.side]: meta.hostName, [opposite(meta.side)]: meta.guestName },
@@ -275,7 +283,9 @@ function validSettings(body) {
   if (side !== "WHITE" && side !== "BLACK") return null;
   const name = validName(body.name);
   if (!name) return null;
-  return { variant, limit, side, name };
+  // The Inferno rule (taken pieces can be won back); games from before it was offered are without.
+  const inferno = body.inferno === true;
+  return { variant, limit, side, name, inferno };
 }
 
 /** [name] trimmed, if it's 1 to 20 characters with no control or formatting characters; otherwise null. */

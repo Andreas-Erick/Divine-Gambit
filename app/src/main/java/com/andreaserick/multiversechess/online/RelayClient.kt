@@ -33,8 +33,10 @@ data class Ticket(
     val variant: Variant,
     val timelineLimit: Int?,
     val opponentName: String? = null,
+    /** Whether the game is played with the Inferno rule. */
+    val inferno: Boolean = false,
 ) {
-    val mode: GameMode get() = GameMode(variant = variant, timelineLimit = timelineLimit, onlineSide = side)
+    val mode: GameMode get() = GameMode(variant = variant, timelineLimit = timelineLimit, onlineSide = side, inferno = inferno)
 
     /** The code as people read and type it: ABCDE-FGHJK. */
     val displayCode: String get() = displayCode(code)
@@ -46,6 +48,7 @@ data class Ticket(
         .put("variant", variant.name)
         .put("limit", timelineLimit ?: JSONObject.NULL)
         .put("opponent", opponentName ?: JSONObject.NULL)
+        .put("inferno", inferno)
         .toString()
 
     companion object {
@@ -80,13 +83,22 @@ data class Ticket(
                 variant = Variant.valueOf(json.getString("variant")),
                 timelineLimit = if (json.isNull("limit")) null else json.getInt("limit"),
                 opponentName = if (json.isNull("opponent")) null else json.getString("opponent"),
+                inferno = json.optBoolean("inferno", false),
             )
         }.getOrNull()
     }
 }
 
 /** A game someone was invited to, before they join it: who invites them, and as which side. */
-data class Invitation(val code: String, val hostName: String, val hostSide: Side, val variant: Variant, val timelineLimit: Int?, val full: Boolean)
+data class Invitation(
+    val code: String,
+    val hostName: String,
+    val hostSide: Side,
+    val variant: Variant,
+    val timelineLimit: Int?,
+    val full: Boolean,
+    val inferno: Boolean = false,
+)
 
 /** What the relay says on a game's connection; see relay/src/index.js. */
 sealed interface RelayMessage {
@@ -140,12 +152,13 @@ class RelayClient(private val baseUrl: String) {
     fun inviteLink(code: String): String = "$baseUrl/join/$code"
 
     /** Opens a new game with this player, called [name], on [side]; the friend gets the other seat by joining. */
-    suspend fun create(variant: Variant, timelineLimit: Int?, side: Side, name: String): Ticket {
+    suspend fun create(variant: Variant, timelineLimit: Int?, side: Side, name: String, inferno: Boolean): Ticket {
         val body = JSONObject()
             .put("variant", variant.name)
             .put("limit", timelineLimit ?: JSONObject.NULL)
             .put("side", side.name)
             .put("name", name)
+            .put("inferno", inferno)
         return ticket(request("/api/rooms", body.toString()))
     }
 
@@ -160,6 +173,7 @@ class RelayClient(private val baseUrl: String) {
                 variant = Variant.valueOf(json.getString("variant")),
                 timelineLimit = if (json.isNull("limit")) null else json.getInt("limit"),
                 full = json.getBoolean("full"),
+                inferno = json.optBoolean("inferno", false),
             )
         } catch (e: Exception) {
             throw RelayException("Unexpected answer from the relay: ${e.message}")
@@ -245,6 +259,7 @@ class RelayClient(private val baseUrl: String) {
             side = Side.valueOf(json.getString("side")),
             variant = Variant.valueOf(json.getString("variant")),
             timelineLimit = if (json.isNull("limit")) null else json.getInt("limit"),
+            inferno = json.optBoolean("inferno", false),
         )
     } catch (e: Exception) {
         throw RelayException("Unexpected answer from the relay: ${e.message}")
