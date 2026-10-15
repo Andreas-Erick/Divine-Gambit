@@ -1,5 +1,7 @@
-"""Builds the launcher icon, "Portal": an ivory knight bursting out of a gold-ringed portal onto a
-swirling board, on a night sky with a teal glow and a few stars.
+"""Builds the launcher icon, "Descent through time": an ivory knight leaping out of a portal that
+is gold above and burning below, falling into embers, while a teal timeline branches in three behind
+it and flames rise from beneath, on a night sky with a few stars: the heavens, the timelines and the
+Inferno.
 
 Writes the adaptive icon's three vector drawables (background, foreground and monochrome) and an
 icon.svg preview, cropped and masked as a round launcher shows it. The knight's shape comes from
@@ -10,14 +12,15 @@ Usage: build.py ICON_DIR FONT OUT_DIR
 """
 import sys
 
-from shapes import circle, glyph, ring, spiral, stars
+from shapes import circle, flames, glyph, ring, spiral, stars, timelines
 
 here, font, out = sys.argv[1], sys.argv[2], sys.argv[3]
 
-NIGHT_HI, NIGHT_LO = "#2B3070", "#090A1E"
-TEAL, GOLD_HI, GOLD_LO = "#3FC1B0", "#FFE29A", "#B98328"
+NIGHT_HI, NIGHT_LO = "#1C1A3E", "#070614"
+TEAL_HI, TEAL = "#9FF2E4", "#3FC1B0"
+GOLD_HI, GOLD_MID = "#FFE29A", "#E8B04B"
+FIRE_HI, FIRE, FIRE_DEEP, EMBER = "#FFD27A", "#FF6A1F", "#C2240F", "#7A0E08"
 IVORY_HI, IVORY_LO, INK = "#FFFBF0", "#D8CCB4", "#191B33"
-BONE, SLATE = "#E9E4D6", "#6E7FA6"
 FULL = "M0,0h108v108h-108z"
 
 
@@ -37,26 +40,39 @@ knight_contour = glyph(here, font, "2658", *KNIGHT_BOX, "flip")
 window = circle(CX, CY, R)
 gold_ring = ring(CX, CY, R + 0.6, 3.0)
 
+# One timeline from the left, branching at the fork into three: up, on and down.
+ENDS = [(82, 25), (88, 50), (84, 76)]
+threads = timelines((10, 54), (24, 54), ENDS, 2.6)
+threads_glow = timelines((10, 54), (24, 54), ENDS, 6.5)
+nodes = "".join(circle(x, y, 2.1) for x, y in ENDS)
+
 background = [
     {"d": FULL, "fill": rad(54, 46, 72, (0, NIGHT_HI, 1), (1, NIGHT_LO, 1))},
-    {"d": FULL, "fill": rad(54, 48, 34, (0, TEAL, 0.5), (0.45, TEAL, 0.14), (1, TEAL, 0))},
-] + [{"d": circle(x, y, r), "fill": ("#FFFFFF", a)} for x, y, r, a in stars(7, 14, avoid=(54, 50, 22))]
+] + [{"d": circle(x, y, r), "fill": ("#FFF6DA", a)} for x, y, r, a in stars(4, 12, avoid=(54, 50, 23))] + [
+    {"d": threads_glow, "fill": (TEAL, 0.22)},
+    {"d": threads, "fill": lin(12, 54, 90, 54, (0, TEAL_HI, 1), (0.6, TEAL, 0.95), (1, TEAL, 0.9))},
+    {"d": nodes, "fill": (TEAL_HI, 1)},
+    {"d": flames(18, 90, 90, 22, 8, 11), "fill": lin(54, 68, 54, 90, (0, "#E0442B", 0.0), (0.4, "#E0442B", 0.75), (1, EMBER, 1))},
+]
 
 foreground = [
-    # The portal's shadow, the swirling board inside it, its depth, and its gold rim.
-    {"d": circle(CX, CY + 2, R + 2.5), "fill": ("#000000", 0.45)},
-    {"d": FULL, "fill": (BONE, 1), "clip": window},
-    {"d": spiral(CX, CY, 40, sectors=10, growth=1.24, twist=0.35, r0=1.5), "fill": (SLATE, 1), "clip": window},
-    {"d": FULL, "fill": rad(CX, CY - 4, R, (0, "#FFFFFF", 0.55), (0.3, TEAL, 0.35), (0.75, "#0B0C22", 0.2), (1, "#0B0C22", 0.7)), "clip": window},
-    {"d": gold_ring, "fill": lin(20, 20, 90, 90, (0, GOLD_HI, 1), (0.5, "#E8B04B", 1), (1, GOLD_LO, 1))},
-    # The knight, breaking out over the rim.
-    {"d": knight_body, "fill": ("#000000", 0.4), "shift": (1.4, 2.0)},
+    # The portal's shadow, the vortex inside it falling into embers, and its rim: gold above,
+    # burning below.
+    {"d": circle(CX, CY + 2, R + 2.5), "fill": ("#000000", 0.5)},
+    {"d": FULL, "fill": rad(CX, CY + 4, R, (0, FIRE_HI, 1), (0.25, FIRE, 1), (0.6, EMBER, 1), (1, "#12030A", 1)), "clip": window},
+    {"d": spiral(CX, CY + 4, 40, sectors=10, growth=1.24, twist=0.5, r0=1.5), "fill": ("#0A0204", 0.55), "clip": window},
+    {"d": gold_ring, "fill": lin(CX, CY - R, CX, CY + R, (0, GOLD_HI, 1), (0.45, GOLD_MID, 1), (0.75, FIRE, 1), (1, FIRE_DEEP, 1))},
+    # The knight, breaking out over the rim, lit by the fire behind it.
+    {"d": knight_body, "fill": (FIRE, 0.55), "shift": (0.8, 1.6)},
     {"d": knight_body, "fill": lin(30, 20, 80, 80, (0, IVORY_HI, 1), (1, IVORY_LO, 1))},
     {"d": knight_contour, "fill": (INK, 1)},
 ]
 
-# Themed icons: the rim and the knight's silhouette, in one colour.
-monochrome = [{"d": gold_ring, "fill": ("#000000", 1)}, {"d": knight_body, "fill": ("#000000", 1)}]
+# Themed icons: the rim, the knight's silhouette and the timeline, in one colour.
+# The timeline stops short of the portal, so the knight's silhouette stays clear.
+outside_portal = FULL + circle(CX, CY, R + 3.4)
+monochrome = [{"d": threads, "fill": ("#000000", 1), "clip": outside_portal}, {"d": nodes, "fill": ("#000000", 1)},
+              {"d": gold_ring, "fill": ("#000000", 1)}, {"d": knight_body, "fill": ("#000000", 1)}]
 
 
 def argb(colour, alpha):
@@ -133,9 +149,10 @@ def vector(shapes, comment):
 
 
 open(f"{here}/icon.svg", "w").write(svg(background + foreground))
-open(f"{out}/ic_launcher_background.xml", "w").write(vector(background, "The night behind the launcher icon: a teal glow among a few stars."))
+open(f"{out}/ic_launcher_background.xml", "w").write(vector(background, (
+    "Behind the launcher icon: a night sky with a few stars, a teal timeline branching in three, and flames rising.")))
 open(f"{out}/ic_launcher_foreground.xml", "w").write(vector(foreground, (
-    "The launcher icon: a knight bursting out of a gold-ringed portal onto a swirling board. The knight's shape is "
+    "The launcher icon: a knight leaping out of a portal, gold above and burning below. The knight's shape is "
     "from Noto Sans Symbols 2 (SIL Open Font License), see assets/licenses.")))
 open(f"{out}/ic_launcher_monochrome.xml", "w").write(vector(monochrome, "The launcher icon in one colour, for themed icons."))
 print("ok")

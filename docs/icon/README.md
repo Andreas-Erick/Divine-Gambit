@@ -1,7 +1,8 @@
 # Launcher icon
 
-The icon, "Portal": an ivory knight bursting out of a gold-ringed portal onto a swirling board, on
-a night sky with a teal glow.
+The icon, "Descent through time": an ivory knight leaping out of a portal that is gold above and
+burning below, falling into embers, while a teal timeline branches in three behind it and flames rise
+from beneath, on a night sky: the heavens, the timelines and the Inferno.
 
 `build.py` draws it (with the helpers in `shapes.py` and `knight.py`) and writes the three vector drawables in
 `app/src/main/res/drawable/` (`ic_launcher_foreground.xml`, `ic_launcher_background.xml` and
