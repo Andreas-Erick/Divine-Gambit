@@ -313,6 +313,8 @@ fun MultiverseView(
     onTap: (Pos) -> Unit,
     modifier: Modifier = Modifier,
     slice: SliceView? = null,
+    /** Drawn behind the boards instead of the plain floor, across the whole view. */
+    backdrop: (DrawScope.() -> Unit)? = null,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -323,7 +325,9 @@ fun MultiverseView(
     val targets = remember(session) { session.targets }
     val threats = remember(session) { session.state.threats() }
     val glyphs = remember(textMeasurer, density) { measurePieceGlyphs(textMeasurer, density) }
-    val labels = remember(textMeasurer, density) { LabelStyles(density) }
+    // Label colours follow the palette into the Inferno and back.
+    val hot = Palette.heat > 0.5f
+    val labels = remember(textMeasurer, density, hot) { LabelStyles(density) }
     val rail = remember { TimelineRail() }
     camera.worldBounds = remember(session.state) { session.state.overviewArea() }
 
@@ -363,7 +367,7 @@ fun MultiverseView(
                 }
             },
     ) {
-        drawRect(Palette.floor)
+        if (backdrop != null) backdrop() else drawRect(Palette.floor)
         val visible = Rect(camera.toWorld(Offset.Zero), camera.toWorld(Offset(size.width, size.height)))
         withTransform({
             translate(camera.offset.x, camera.offset.y)
@@ -641,6 +645,7 @@ private fun DrawScope.drawMultiverse(
                     pos == session.selected -> Palette.selection
                     pos in targetSquares -> Palette.target
                     pos in travelSquares -> Palette.travel
+                    pos == session.returned -> Palette.returned
                     pos in recentSquares -> Palette.lastMove
                     else -> null
                 }

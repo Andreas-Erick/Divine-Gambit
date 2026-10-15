@@ -1,4 +1,4 @@
-// Relay for online games of Multiverse Chess.
+// Relay for online games of Divine Gambit.
 //
 // Each game is a room, kept by one Durable Object: who sits where, and the game as a list of
 // events (the turns, and how the game ended). The relay doesn't know chess: both apps check every
@@ -105,7 +105,7 @@ export default {
       return room(env, code).fetch(request);
     }
 
-    if (path === "/") return new Response("Multiverse Chess relay\n");
+    if (path === "/") return new Response("Divine Gambit relay\n");
     return error(404, "Not found");
   },
 };
@@ -326,7 +326,7 @@ function invitationPage(url, code, invitation, env) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Multiverse Chess invitation</title>
+<title>Divine Gambit invitation</title>
 <style>
   :root { color-scheme: light; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f3eee4;
@@ -355,7 +355,7 @@ function invitationPage(url, code, invitation, env) {
   <div class="code">${code.slice(0, 5)}-${code.slice(5)}</div>
   <a class="button" href="${intent}">Open in the app</a>
   <a class="button secondary" href="${env.DOWNLOAD_URL}">Download the app</a>
-  <p class="small">Or open Multiverse Chess, choose <b>Join a friend</b> and enter the code.</p>
+  <p class="small">Or open Divine Gambit, choose <b>Join a friend</b> and enter the code.</p>
 </main>
 </body>
 </html>`;
