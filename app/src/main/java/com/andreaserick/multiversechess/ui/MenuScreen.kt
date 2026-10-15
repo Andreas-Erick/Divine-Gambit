@@ -99,7 +99,7 @@ fun MenuScreen(
     playerName: String,
     aiName: String?,
     onAiSettings: () -> Unit,
-    onInvite: (Variant, Int?, Side, String) -> Unit,
+    onInvite: (Variant, Int?, Side, String, Boolean) -> Unit,
     onJoin: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -261,7 +261,7 @@ fun MenuScreen(
                                 PageHeader("Multiplayer") { page = MenuPage.HOME }
                                 variantRow()
                                 timelinesRow()
-                                infernoRow(if (canPlayOnline) " On this phone only, not online." else "")
+                                infernoRow("")
                                 Spacer(Modifier.height(2.dp))
                                 PrimaryPill(
                                     onClick = { onStart(GameMode(variant = variant, timelineLimit = timelineLimit, inferno = inferno)) },
@@ -338,10 +338,11 @@ fun MenuScreen(
         InviteDialog(
             variant = variant,
             timelineLimit = timelineLimit,
+            inferno = inferno,
             playerName = playerName,
             onInvite = { side, name ->
                 showInvite = false
-                onInvite(variant, timelineLimit, side, name)
+                onInvite(variant, timelineLimit, side, name, inferno)
             },
             onDismiss = { showInvite = false },
         )
@@ -464,7 +465,14 @@ private fun SettingRow(title: String, description: String, control: @Composable 
 }
 
 @Composable
-private fun InviteDialog(variant: Variant, timelineLimit: Int?, playerName: String, onInvite: (Side, String) -> Unit, onDismiss: () -> Unit) {
+private fun InviteDialog(
+    variant: Variant,
+    timelineLimit: Int?,
+    inferno: Boolean,
+    playerName: String,
+    onInvite: (Side, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
     var name by rememberSaveable { mutableStateOf(playerName) }
     val valid = Ticket.parseName(name)
     AlertDialog(
@@ -475,7 +483,7 @@ private fun InviteDialog(variant: Variant, timelineLimit: Int?, playerName: Stri
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     "You'll get a link to send to your friend, to play on their own phone. " +
-                        "${variant.displayName}, ${limitLabel(timelineLimit).lowercase()}, as chosen under Multiplayer.",
+                        "${variant.displayName}, ${limitLabel(timelineLimit).lowercase()}${if (inferno) ", with the Inferno" else ""}, as chosen under Multiplayer.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 NameField(name, onChange = { name = it })
@@ -783,7 +791,8 @@ private val RULES = listOf(
         "trial, a knight or bishop two, a rook three and a queen four; tap your pieces at the top of " +
         "the Inferno to switch between them. A piece that has passed its trials returns at the start of your turn, on a square " +
         "where it can't be taken straight away. While it's your turn on the board you have 90 seconds " +
-        "there per turn; while your opponent thinks, the clock stops. If the game ends while you're " +
+        "there per turn; while your opponent thinks, the clock stops. Online, you each have your own " +
+        "Inferno, and a piece that returns appears on both phones. If the game ends while you're " +
         "in the Inferno, you'll be told.",
     "Fairy pieces" to
         "Some variants add pieces drawn as lettered discs. S, princess: a rook or bishop move. " +

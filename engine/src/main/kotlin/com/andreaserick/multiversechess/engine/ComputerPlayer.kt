@@ -8,6 +8,9 @@ import kotlin.random.Random
  * assumes the opponent answers with whichever of up to [replies] turns is worst for it. It plays a
  * checkmate whenever it sees one, and steers clear of turns that let the opponent mate it. It
  * stops looking after about [thinkMillis] and plays the best turn found by then.
+ *
+ * The replies to different turns are looked at on [threads] threads at once, [deepened] turns per
+ * thread: in big games, where time runs out, it weighs several times as many turns.
  */
 class ComputerPlayer(
     private val random: Random = Random.Default,
@@ -17,6 +20,7 @@ class ComputerPlayer(
     private val deepened: Int = 8,
     private val replies: Int = 200,
     private val replyBudget: Int = 4_000,
+    private val threads: Int = Parallel.threads,
 ) {
     private class Candidate(val moves: List<Move>, val after: GameState, val score: Double)
 
@@ -41,10 +45,13 @@ class ComputerPlayer(
             val fallback = TurnSearch(FALLBACK_BUDGET, stop = stop).findLegalTurn(state) as? TurnSearchResult.Found ?: return emptyList()
             return listOf(RankedTurn(fallback.result.turnMoves, 0.0, mates = false))
         }
-        val ranked = found.sortedByDescending { it.score }.take(maxOf(size, deepened)).map { candidate ->
+        val top = found.sortedByDescending { it.score }.take(maxOf(size, deepened))
+        val seeds = List(top.size) { random.nextLong() }
+        val ranked = Parallel.map(top.indices.toList(), threads) { i ->
+            val candidate = top[i]
             val branches = candidate.after.timelines.size - state.timelines.size
             val mates = candidate.after.threats().isNotEmpty() && !late() && isMated(candidate.after, MATE_BUDGET, late)
-            val score = if (mates) MATE else if (late()) candidate.score else worstReply(candidate.after, me, late) - BRANCH_COST * branches
+            val score = if (mates) MATE else if (late()) candidate.score else worstReply(candidate.after, me, Random(seeds[i]), late) - BRANCH_COST * branches
             RankedTurn(candidate.moves, score, mates)
         }
         return ranked.sortedWith(compareByDescending<RankedTurn> { it.mates }.thenByDescending { it.score }).take(size)
@@ -55,7 +62,7 @@ class ComputerPlayer(
         val me = state.sideToMove
         val found = ArrayList<Candidate>()
         try {
-            TurnWalker(nodeBudget, maxOptionalMoves = 1, order = ::ordered, stop = late).walk(state) { turn ->
+            TurnWalker(nodeBudget, maxOptionalMoves = 1, order = { s, moves -> ordered(s, moves, random) }, stop = late).walk(state) { turn ->
                 val after = turn.submit()
                 val branches = after.timelines.size - state.timelines.size
                 found += Candidate(turn.turnMoves, after, score(after, me) - BRANCH_COST * branches)
@@ -88,18 +95,32 @@ class ComputerPlayer(
             if (candidate.after.threats().isNotEmpty() && isMated(candidate.after, MATE_BUDGET, late)) return candidate.moves
         }
 
-        // Look at the opponent's best answer to the most promising turns, and beyond them for as
-        // long as every turn looked at so far lets the opponent mate.
+        // Look at the opponent's best answer to the most promising turns, a batch at a time (one
+        // turn per thread), and beyond them for as long as every turn looked at so far lets the
+        // opponent mate. Each turn's look gets its own random numbers, drawn here in order, so the
+        // choice doesn't depend on which thread finishes first.
+        val sorted = found.sortedByDescending { it.score }
+        val noise = List(sorted.size) { random.nextDouble() * 0.05 }
+        val seeds = List(sorted.size) { random.nextLong() }
+        val batch = threads.coerceAtLeast(1)
         var best = found.maxBy { it.score }
         var bestScore = Double.NEGATIVE_INFINITY
-        for ((i, candidate) in found.sortedByDescending { it.score }.withIndex()) {
-            if (late() || (i >= deepened && bestScore > -MATE / 2)) break
-            val score = worstReply(candidate.after, me, late) - BRANCH_COST * (candidate.after.timelines.size - state.timelines.size) +
-                random.nextDouble() * 0.05
-            if (score > bestScore) {
-                bestScore = score
-                best = candidate
+        var next = 0
+        while (next < sorted.size && !late() && (next < deepened * batch || bestScore <= -MATE / 2)) {
+            val indices = (next until minOf(next + batch, sorted.size)).toList()
+            val scores = Parallel.map(indices, threads) { i ->
+                val candidate = sorted[i]
+                worstReply(candidate.after, me, Random(seeds[i]), late) - BRANCH_COST * (candidate.after.timelines.size - state.timelines.size) + noise[i]
             }
+            // A look cut short by the deadline doesn't count.
+            if (late() && next > 0) break
+            for ((k, i) in indices.withIndex()) {
+                if (scores[k] > bestScore) {
+                    bestScore = scores[k]
+                    best = sorted[i]
+                }
+            }
+            next += batch
         }
         return best.moves
     }
@@ -108,11 +129,11 @@ class ComputerPlayer(
      * How good [after] (the opponent to move) is for [me] once the opponent has answered as well
      * as it can, among the replies looked at.
      */
-    private fun worstReply(after: GameState, me: Side, stop: () -> Boolean): Double {
+    private fun worstReply(after: GameState, me: Side, random: Random, stop: () -> Boolean): Double {
         var worst = Double.POSITIVE_INFINITY
         var seen = 0
         try {
-            TurnWalker(replyBudget, maxOptionalMoves = 1, order = ::ordered, stop = stop).walk(after) { reply ->
+            TurnWalker(replyBudget, maxOptionalMoves = 1, order = { s, moves -> ordered(s, moves, random) }, stop = stop).walk(after) { reply ->
                 val back = reply.submit()
                 val score = if (back.threats().isNotEmpty() && isMated(back, REPLY_MATE_BUDGET, stop)) -MATE else score(back, me)
                 if (score < worst) worst = score
@@ -167,7 +188,7 @@ class ComputerPlayer(
     }
 
     /** Captures of valuable pieces first, otherwise random order. */
-    private fun ordered(state: GameState, moves: List<Move>): List<Move> =
+    private fun ordered(state: GameState, moves: List<Move>, random: Random): List<Move> =
         moves.shuffled(random).sortedByDescending { state.pieceAt(it.to)?.type?.value ?: 0 }
 
     /** Value of the best piece [attacker] can capture on its next turn. */

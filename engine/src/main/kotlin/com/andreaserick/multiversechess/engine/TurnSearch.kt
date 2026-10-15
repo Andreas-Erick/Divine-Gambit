@@ -71,8 +71,16 @@ internal class FixedBoardsSearch(private val nodeBudget: Int, private val stop: 
     /** Sets of moves already explored: here the same moves in any order give the same position. */
     private val seen = HashSet<Set<Move>>()
 
+    /** Whether the position the search started from was already in check. */
+    private var startInCheck = false
+    private var start: GameState? = null
+
     /** A legal turn from [start] (at the beginning of a turn), or null if there is none. */
-    fun find(start: GameState): GameState? = search(start, start.mandatoryTimelines.toSet(), emptySet())
+    fun find(start: GameState): GameState? {
+        this.start = start
+        startInCheck = start.isInCheck(start.sideToMove)
+        return search(start, start.mandatoryTimelines.toSet(), emptySet())
+    }
 
     private fun search(state: GameState, open: Set<Int>, refutedAbove: Set<Move>): GameState? {
         if (open.isEmpty()) return state
@@ -104,7 +112,7 @@ internal class FixedBoardsSearch(private val nodeBudget: Int, private val stop: 
 
     private fun isSafe(state: GameState, move: Move): Boolean {
         if (++nodes > nodeBudget || stop()) throw BudgetExceeded()
-        return !state.apply(move).isInCheck(state.sideToMove)
+        return !state.apply(move).isInCheckAfter(state, parentInCheck = state === start && startInCheck)
     }
 }
 
@@ -175,17 +183,31 @@ internal class TurnWalker(
      */
     fun walk(start: GameState, visit: (GameState) -> Boolean): GameState? {
         origin = start.timelines
-        return walk(start, maxOptionalMoves, visit, emptySet())
+        // Below the start, a position is checked against the one it came from, which wasn't in
+        // check (or the walk would have turned back), so only the start needs a full check.
+        val inCheck = start.isInCheck(start.sideToMove)
+        if (inCheck && start.turnMoves.isNotEmpty()) return null
+        return walk(start, null, inCheck, maxOptionalMoves, visit, emptySet())
     }
 
-    private fun walk(state: GameState, optionalLeft: Int, visit: (GameState) -> Boolean, refutedAbove: Set<Move>): GameState? {
+    /** [state], reached from [parent] (null at the start) whose check was [parentInCheck]. */
+    private fun walk(
+        state: GameState,
+        parent: GameState?,
+        parentInCheck: Boolean,
+        optionalLeft: Int,
+        visit: (GameState) -> Boolean,
+        refutedAbove: Set<Move>,
+    ): GameState? {
         val key = state.turnKey()
         if ((seen[key] ?: -1) >= optionalLeft) return null
         // Remembering positions only saves time; past a point, stop to keep memory bounded.
         if (seen.size < MAX_REMEMBERED) seen[key] = optionalLeft
         count()
         // In the thorough mode, the position above already checked this one.
-        if (!inheritRefutations && state.turnMoves.isNotEmpty() && state.isInCheck(state.sideToMove)) return null
+        if (!inheritRefutations && parent != null && state.isInCheckAfter(parent, parentInCheck)) return null
+        // Positions below this one are checked against it: past the start, it isn't in check.
+        val inCheck = parent == null && parentInCheck
 
         val mandatory = state.mandatoryTimelines
         if (mandatory.isEmpty() && state.canSubmit) {
@@ -204,10 +226,10 @@ internal class TurnWalker(
         }
         if (!inheritRefutations) {
             for (move in order(state, advancing)) {
-                walk(state.apply(move), optionalLeft, visit, emptySet())?.let { return it }
+                walk(state.apply(move), state, inCheck, optionalLeft, visit, emptySet())?.let { return it }
             }
             for (move in order(state, tried)) {
-                walk(state.apply(move), optionalLeft - 1, visit, emptySet())?.let { return it }
+                walk(state.apply(move), state, inCheck, optionalLeft - 1, visit, emptySet())?.let { return it }
             }
             return null
         }
@@ -217,7 +239,7 @@ internal class TurnWalker(
         fun survivors(moves: List<Move>) = moves.filter { move ->
             val loses = move in refutedAbove || run {
                 count()
-                state.apply(move).isInCheck(state.sideToMove)
+                state.apply(move).isInCheckAfter(state, inCheck)
             }
             if (loses) refuted += move
             !loses
@@ -225,10 +247,10 @@ internal class TurnWalker(
         val advancingSurvivors = survivors(order(state, advancing))
         val optionalSurvivors = survivors(order(state, tried))
         for (move in advancingSurvivors) {
-            walk(state.apply(move), optionalLeft, visit, stillRefuted(state, refuted, move))?.let { return it }
+            walk(state.apply(move), state, inCheck, optionalLeft, visit, stillRefuted(state, refuted, move))?.let { return it }
         }
         for (move in optionalSurvivors) {
-            walk(state.apply(move), optionalLeft - 1, visit, stillRefuted(state, refuted, move))?.let { return it }
+            walk(state.apply(move), state, inCheck, optionalLeft - 1, visit, stillRefuted(state, refuted, move))?.let { return it }
         }
         return null
     }
