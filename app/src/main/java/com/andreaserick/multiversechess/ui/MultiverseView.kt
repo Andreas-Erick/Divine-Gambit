@@ -323,7 +323,7 @@ fun MultiverseView(
     val currentOnTap by rememberUpdatedState(onTap)
     val currentSlice by rememberUpdatedState(slice)
     val targets = remember(session) { session.targets }
-    val threats = remember(session) { session.state.threats().map { it.drawnIn(session.state) } }
+    val threats = remember(session) { session.state.shownThreats() }
     val glyphs = remember(textMeasurer, density) { measurePieceGlyphs(textMeasurer, density) }
     // Label colours follow the palette into the Inferno and back.
     val hot = Palette.heat > 0.5f
@@ -379,17 +379,6 @@ fun MultiverseView(
             session.state, threats.mapTo(HashSet()) { it.from.l }, camera, rail, textMeasurer, labels.rail, slice, session.sliceAnchor(),
         )
     }
-}
-
-/**
- * A threat as drawn in [state]. Threats are found as if the side to move passed its boards still
- * to play, so an attacker can stand on a board one half-move past its timeline's end, which
- * isn't drawn. That board would be a copy of the timeline's latest one, so the attack is drawn
- * from the same square there.
- */
-private fun Move.drawnIn(state: GameState): Move {
-    val timeline = state.timelines.getValue(from.l)
-    return if (from.t > timeline.end) copy(from = from.copy(t = timeline.end)) else this
 }
 
 /** Squares smaller than this on screen are too small to tap reliably. */
