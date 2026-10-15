@@ -353,8 +353,8 @@ function invitationPage(url, code, invitation, env) {
 </head>
 <body>
 <main>
-  <h1>Multiverse</h1>
-  <p class="sub">CHESS</p>
+  <h1>Divine</h1>
+  <p class="sub">GAMBIT</p>
   <p>${
     !invitation
       ? "There's no game with this code. It may have expired: ask for a new invitation."
