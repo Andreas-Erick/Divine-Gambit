@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/screenshots/icon.png" width="128" alt="The app icon: a knight bursting out of a gold-ringed portal onto a swirling board"></p>
+<p align="center"><img src="docs/screenshots/icon.png" width="128" alt="The app icon: a knight leaping out of a portal, gold above and burning below, with a teal timeline branching behind it and flames beneath"></p>
 
 # Divine Gambit (Android)
 
@@ -14,9 +14,9 @@ affiliated with or endorsed by the original game's developers, and it uses none 
 game's code or assets.
 
 <p align="center">
-  <img src="docs/screenshots/menu.png" width="250" alt="Main menu: Divine Gambit over a turning checkerboard vortex among the stars, with Singleplayer, Multiplayer and Puzzles">
-  <img src="docs/screenshots/time-travel.png" width="250" alt="A knight's jump back in time, drawn as an arrow from timeline +1 into the past of timeline 0, which branches timeline -1">
-  <img src="docs/screenshots/overview.png" width="250" alt="Overview of a game with three timelines branching from the original">
+  <img src="docs/screenshots/menu.png" width="250" alt="Main menu: Divine Gambit under the rings of the heavens, a teal timeline branching below the card and a red warmth rising from the bottom, with Singleplayer in gold, Multiplayer and Puzzles">
+  <img src="docs/screenshots/time-travel.png" width="250" alt="A knight's jump one turn back in time, drawn as an arrow into the past of timeline 0, which branches timeline +1; White can now submit">
+  <img src="docs/screenshots/overview.png" width="250" alt="Overview of a game with three timelines, -1, 0 and +1, after Black's knight answered with a jump of its own">
 </p>
 
 ## Contents
@@ -72,7 +72,7 @@ Online play needs an internet connection; everything else works offline.
 ## How to play
 
 <p align="center">
-  <img src="docs/screenshots/present.png" width="250" alt="The present: a board on timeline -1 waiting for White's move">
+  <img src="docs/screenshots/present.png" width="250" alt="The present: the first board of timeline +1, waiting for Black's move">
   <img src="docs/screenshots/puzzles.png" width="250" alt="The puzzle list with board previews">
   <img src="docs/screenshots/puzzle.png" width="250" alt="Puzzle 'Crossing over': two timelines, both boards ringed in gold">
 </p>
@@ -194,7 +194,7 @@ claim a checkmate that isn't one.
 <p align="center">
   <img src="docs/screenshots/ai-settings.png" width="250" alt="AI opponent settings: Off, Gemini, a model on your computer or a model on this phone, with Qwen3 0.6B downloaded and chosen">
   <img src="docs/screenshots/ai-game.png" width="250" alt="A game against Deepseek 14B, which comments on its move: Opening up the kingside with a pawn storm! Prepare for the fianchetto!">
-  <img src="docs/screenshots/ai-puzzles.png" width="250" alt="The puzzle list's Puzzles by AI card, with an optional theme and a button to ask Deepseek 14B for a puzzle">
+  <img src="docs/screenshots/ai-puzzles.png" width="250" alt="The puzzle list's Puzzles by AI card, with an optional theme and a button to ask Qwen3 0.6B for a puzzle">
 </p>
 
 **AI opponent** (at the bottom of the menu) connects a language model, in one of three ways:
@@ -273,7 +273,7 @@ travel through.
 ## Puzzles
 
 <p align="center">
-  <img src="docs/screenshots/solved.png" width="250" alt="Puzzle solved dialog over the checkmated position">
+  <img src="docs/screenshots/solved.png" width="250" alt="Puzzle solved dialog over the checkmated position of Crossing over">
 </p>
 
 **Puzzles** in the menu opens six "White to checkmate in one turn" puzzles that teach the core
