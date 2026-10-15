@@ -20,6 +20,11 @@ class Board private constructor(
         return Board(copy, enPassant)
     }
 
+    /** Calls [action] with the file, rank and piece of each occupied square, without making a list. */
+    fun forEachPiece(action: (x: Int, y: Int, piece: Piece) -> Unit) {
+        for (i in cells.indices) cells[i]?.let { action(i % BOARD_SIZE, i / BOARD_SIZE, it) }
+    }
+
     fun pieces(): List<Pair<Square, Piece>> = buildList {
         for (i in cells.indices) {
             cells[i]?.let { add(Square(i % BOARD_SIZE, i / BOARD_SIZE) to it) }

@@ -181,6 +181,51 @@ class GameState(
     fun isInCheck(side: Side): Boolean = kingCaptures(side.opponent, firstOnly = true).isNotEmpty()
 
     /**
+     * [isInCheck] for the side to move, for a position reached from [parent] by that side's moves,
+     * where [parentInCheck] is the parent's: much quicker, as only the new boards need looking at.
+     *
+     * Moves never change a board, they only add boards, and only boards with the opponent to move
+     * (a moved piece arrives on the next half-move). So a capture the parent didn't allow must
+     * start on a new board, or travel through or onto one: a line of attack used to stop where a
+     * board didn't exist. Pieces on new boards are looked at in full; elsewhere, only the
+     * directions whose line crosses a new board.
+     */
+    internal fun isInCheckAfter(parent: GameState, parentInCheck: Boolean): Boolean {
+        if (parentInCheck) return true
+        val side = sideToMove
+        val attacker = side.opponent
+        val added = ArrayList<BoardId>()
+        for ((l, timeline) in timelines) {
+            val before = parent.timelines[l]
+            if (before === timeline) continue
+            val first = if (before == null) timeline.start else before.end + 1
+            for (t in first..timeline.end) added += BoardId(l, t)
+        }
+        if (added.isEmpty()) return false
+        for (timeline in playableTimelines(attacker)) {
+            val here = BoardId(timeline.index, timeline.end)
+            val lines = if (here in added) null else Lines.between(here, added)
+            // Nothing on a board with no line to a new board can make a new capture, and a pawn
+            // only captures a board or two away.
+            if (lines != null && lines.isEmpty) continue
+            var found = false
+            timeline.last.forEachPiece { x, y, piece ->
+                if (found || piece.side != attacker) return@forEachPiece
+                if (lines != null && piece.type.isPawnLike && !lines.nearby) return@forEachPiece
+                for (move in generateMoves(Pos(timeline.index, timeline.end, x, y), capturesOnly = true, through = lines)) {
+                    val taken = pieceAt(move.to)
+                    if (taken != null && taken.side == side && taken.type.isRoyal) {
+                        found = true
+                        return@forEachPiece
+                    }
+                }
+            }
+            if (found) return true
+        }
+        return false
+    }
+
+    /**
      * King captures the opponent threatens if the side to move left its remaining present boards
      * unplayed. This is what "check" means in this game, and what the UI shows in red.
      */

@@ -27,6 +27,7 @@ import com.andreaserick.multiversechess.engine.GameSession
 import com.andreaserick.multiversechess.engine.Notation
 import com.andreaserick.multiversechess.engine.OnlineEvent
 import com.andreaserick.multiversechess.engine.Outcome
+import com.andreaserick.multiversechess.engine.Parallel
 import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Puzzle
 import com.andreaserick.multiversechess.engine.Puzzles
@@ -132,7 +133,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val number = generatedPuzzles.size + 1
             val puzzle = withContext(Dispatchers.Default) {
                 val job = coroutineContext.job
-                PuzzleGenerator(stop = { !job.isActive }).generate(number)
+                PuzzleGenerator(stop = { !job.isActive }, threads = Parallel.threads).generate(number)
             }
             generating = false
             if (puzzle == null) {
@@ -413,7 +414,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var freeing = false
 
     /** The side whose Inferno this device shows: the player's, or in pass and play, the side to move. */
-    private fun GameSession.hellSide(): Side = mode.computerSide?.opponent ?: state.sideToMove
+    private fun GameSession.hellSide(): Side = mode.onlineSide ?: mode.computerSide?.opponent ?: state.sideToMove
+
+    /** Whether the other player is to move: the computer, or the friend online. */
+    private val GameSession.opponentsTurn: Boolean get() = isComputerTurn || isRemoteTurn
 
     /** Souls of the player's side still in the Inferno, with the trials they've passed. */
     fun hellSouls(game: GameSession? = session): List<SoulView> {
@@ -454,7 +458,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 delay(1_000)
                 val game = session ?: break
                 // The clock only runs while it's this player's turn on the board.
-                if (game.outcome != Outcome.Ongoing || game.isComputerTurn || endedInHell != null) continue
+                if (game.outcome != Outcome.Ongoing || game.opponentsTurn || endedInHell != null) continue
                 hellSeconds--
                 if (hellSeconds <= 0) {
                     leaveHell()
@@ -539,29 +543,50 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Keeps the Inferno in step with the game: each turn brings a new allowance of time, the
-     * computer's move or the end of the game is news in the Inferno, and freed pieces return.
+     * opponent's move or the end of the game is news in the Inferno, a piece of the friend's
+     * returning online is news on the board, and freed pieces return.
      */
     private fun watchInferno(previous: GameSession?, next: GameSession) {
         if (!next.mode.inferno) return
         // Undo can take a piece back out of the Inferno.
         if (trialsSolved.keys.any { it >= next.souls.size }) trialsSolved = trialsSolved.filterKeys { it < next.souls.size }
         if (previous != null && previous.state.sideToMove != next.state.sideToMove) hellSeconds = HELL_SECONDS
-        if (inHell && previous != null) {
+        if (inHell && previous != null && !replaying) {
             when {
                 previous.outcome == Outcome.Ongoing && next.outcome != Outcome.Ongoing -> endedInHell = next.outcome
-                previous.isComputerTurn && !next.isComputerTurn && next.outcome == Outcome.Ongoing ->
-                    infernoNotice = "${next.state.sideToMove.opponent.displayName} has played. It's your turn: " +
+                previous.opponentsTurn && !next.opponentsTurn && next.outcome == Outcome.Ongoing ->
+                    infernoNotice = "${opponentName(next)} has played. It's your turn: " +
                         "${formatSeconds(hellSeconds)} left here before you must go back."
+            }
+        }
+        // The friend's piece came back from their Inferno.
+        if (previous != null && next.mode.onlineSide != null && !replaying) {
+            val returned = next.souls.indices.firstOrNull { i ->
+                next.souls[i].freed && previous.souls.getOrNull(i)?.freed == false && next.souls[i].side != next.mode.onlineSide
+            }
+            val at = next.returned
+            if (returned != null && at != null) {
+                infernoNotice = "${opponentName(next)}'s ${next.souls[returned].type.displayName.lowercase()} has returned from the Inferno: " +
+                    "${Notation.boardLabel(at.l, at.t)} ${at.square}."
             }
         }
         if (waitingSouls(next).isNotEmpty()) forge()
         freeSouls()
     }
 
-    /** Brings a piece that has passed its trials back to the board, at the start of its side's turn. */
+    /** The other player, as this player knows them: the friend's name online, otherwise their side. */
+    private fun opponentName(game: GameSession): String {
+        val side = game.hellSide().opponent
+        return online?.takeIf { game.mode.onlineSide != null }?.nameOf(side) ?: side.displayName
+    }
+
+    /**
+     * Brings a piece that has passed its trials back to the board, at the start of its side's turn.
+     * Online, the friend's device places it too, once the relay passes the news on.
+     */
     private fun freeSouls() {
         val current = session ?: return
-        if (freeing) return
+        if (freeing || outbox != null) return
         val ready = current.souls.indices.firstOrNull { i ->
             current.canFree(i) && (trialsSolved[i] ?: 0) >= current.souls[i].trials
         } ?: return
@@ -574,7 +599,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val pos = next.returned!!
             infernoNotice = "Your ${current.souls[ready].type.displayName.lowercase()} has returned from the Inferno: " +
                 "${Notation.boardLabel(pos.l, pos.t)} ${pos.square}."
-            show(next)
+            if (current.mode.onlineSide != null) {
+                if (outbox == null) send(OnlineEvent.Free(ready, pos))
+            } else {
+                show(next)
+            }
             saveTrials(next)
         }
     }
@@ -586,7 +615,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             while (forged.size < FORGED_AHEAD && waitingSouls(session).isNotEmpty()) {
                 val puzzle = withContext(Dispatchers.Default) {
                     val job = coroutineContext.job
-                    PuzzleGenerator(stop = { !job.isActive }).generate(0)
+                    // Two at once: it runs in the background while the game goes on.
+                    PuzzleGenerator(stop = { !job.isActive }, threads = 2).generate(0)
                 } ?: continue
                 forged += puzzle
                 if (inHell && trial == null) nextTrial()
@@ -609,8 +639,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun saveTrials(game: GameSession) {
-        if (!game.mode.inferno || game.mode.puzzle != null || game.mode.onlineSide != null) return
+        if (!game.mode.inferno || game.mode.puzzle != null) return
         val text = trialsSolved.entries.joinToString("\n") { (index, solved) -> "$index $solved" }
+        // Online, with the seat in the game, so they're there when it's continued.
+        val code = online?.ticket?.code
+        if (game.mode.onlineSide != null) {
+            if (code != null) onlinePrefs.edit { putString(KEY_TRIALS + code, text) }
+            return
+        }
         viewModelScope.launch(saving) { runCatching { trialsFile.writeText(text) } }
     }
 
@@ -802,6 +838,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var onlineJob: Job? = null
     private var connection: RelayConnection? = null
 
+    /** Whether events from before are being caught up on, as the game opens or reconnects. */
+    private var replaying = false
+
     /** How many of the online game's events [session] has played. */
     private var applied = 0
 
@@ -817,9 +856,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     /** Opens a game online, with this player, called [name], on [side], and a link to invite a friend to it. */
-    fun inviteFriend(variant: Variant, timelineLimit: Int?, side: Side, name: String) {
+    fun inviteFriend(variant: Variant, timelineLimit: Int?, side: Side, name: String, inferno: Boolean) {
         rememberName(name)
-        openOnline("Creating the game…") { startOnline(relay.create(variant, timelineLimit, side, name)) }
+        openOnline("Creating the game…") { startOnline(relay.create(variant, timelineLimit, side, name, inferno)) }
     }
 
     /**
@@ -900,6 +939,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         onlinePrefs.edit { putString(KEY_ONLINE, ticket.encode()) }
         online = OnlineStatus(ticket, relay.inviteLink(ticket.code))
         session = GameSession(ticket.mode)
+        trialsSolved = onlinePrefs.getString(KEY_TRIALS + ticket.code, null)?.let { runCatching { decodeTrials(it) }.getOrNull() }.orEmpty()
         applied = 0
         outbox = null
         onlineJob = viewModelScope.launch {
@@ -931,9 +971,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 connection = message.connection
                 online = online?.copy(connected = true, opponentJoined = message.opponentJoined, opponentPresent = message.opponentPresent)
                 learnNames(message.names)
-                for (index in applied until message.events.size) {
-                    val (sender, event) = message.events[index]
-                    if (!play(sender, event)) return
+                // Catching up on events from before: what they did is no news.
+                replaying = true
+                try {
+                    for (index in applied until message.events.size) {
+                        val (sender, event) = message.events[index]
+                        if (!play(sender, event)) return
+                    }
+                } finally {
+                    replaying = false
                 }
                 // A turn sent before the connection dropped: send it again, unless it got there.
                 outbox?.let { (index, event) -> if (index == applied) message.connection.send(index, event) else outbox = null }
@@ -993,6 +1039,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         // A search still running (No legal turn?) is about a position that's gone.
         stopJob()
         session = next
+        watchInferno(current, next)
         if (next.outcome != Outcome.Ongoing) forgetOnline()
         return true
     }
@@ -1016,8 +1063,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun forgetOnline() {
+        val code = resumableOnline?.code ?: online?.ticket?.code
         resumableOnline = null
-        onlinePrefs.edit { remove(KEY_ONLINE) }
+        onlinePrefs.edit {
+            remove(KEY_ONLINE)
+            if (code != null) remove(KEY_TRIALS + code)
+        }
     }
 
     /** Disconnects from the online game, if any; an unfinished one can be rejoined from the menu. */
@@ -1034,6 +1085,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val TAG = "MultiverseChess"
         const val KEY_SOLVED = "solved_puzzles"
         const val KEY_ONLINE = "game"
+
+        /** Trials passed in an online game, by its code. */
+        const val KEY_TRIALS = "trials:"
         const val KEY_NAME = "player_name"
         const val RECONNECT_MIN_MILLIS = 1_000L
         const val RECONNECT_MAX_MILLIS = 15_000L

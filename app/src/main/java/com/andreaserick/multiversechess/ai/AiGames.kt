@@ -5,6 +5,7 @@ import com.andreaserick.multiversechess.engine.ComputerPlayer
 import com.andreaserick.multiversechess.engine.DraftCheck
 import com.andreaserick.multiversechess.engine.GameState
 import com.andreaserick.multiversechess.engine.Move
+import com.andreaserick.multiversechess.engine.Parallel
 import com.andreaserick.multiversechess.engine.Puzzle
 import com.andreaserick.multiversechess.engine.PuzzleDrafts
 import com.andreaserick.multiversechess.engine.PuzzleGenerator
@@ -91,7 +92,7 @@ object AiGames {
             ", so the engine is making one for it to present…")
         val generated = withContext(Dispatchers.Default) {
             val job = coroutineContext.job
-            PuzzleGenerator(stop = { !job.isActive }).generate(number)
+            PuzzleGenerator(stop = { !job.isActive }, threads = Parallel.threads).generate(number)
         } ?: throw AiException("No puzzle could be made this time. Please try again.")
         progress("${model.name} is naming the puzzle…")
         val named = try {
