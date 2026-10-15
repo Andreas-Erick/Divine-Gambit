@@ -239,6 +239,20 @@ class GameState(
         return GameState(passed, sideToMove, turnMoves, timelineLimit).kingCaptures(sideToMove.opponent)
     }
 
+    /**
+     * [threats] as they're shown on the boards there are. A threat is found as if the side to move
+     * passed the boards it still has to play, so either end can be on one of those passed boards,
+     * one half-move past its timeline's end, which doesn't exist. It would be a copy of the
+     * timeline's latest board, so the threat is shown from or to the same square there.
+     */
+    fun shownThreats(): List<Move> = threats().map { threat ->
+        fun Pos.onBoard(): Pos {
+            val end = timelines.getValue(l).end
+            return if (t > end) copy(t = end) else this
+        }
+        threat.copy(from = threat.from.onBoard(), to = threat.to.onBoard())
+    }
+
     /** Decides whether the side to move is checkmated or stalemated. */
     fun evaluateOutcome(nodeBudget: Int = 4_000, maxOptionalMoves: Int = 1): Outcome =
         when (TurnSearch(nodeBudget, maxOptionalMoves).findLegalTurn(this)) {
