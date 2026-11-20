@@ -28,12 +28,20 @@
 //   {type: "event", index, event}
 
 import { DurableObject } from "cloudflare:workers";
+import {
+  MAX_EVENTS,
+  MAX_EVENT_LENGTH,
+  eventKey,
+  invitationPage,
+  opposite,
+  randomCode,
+  readBoundedJson,
+  validCode,
+  validEventMessage,
+  validName,
+  validSettings,
+} from "./protocol.js";
 
-const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
-const CODE_LENGTH = 10;
-const MAX_NAME_LENGTH = 20;
-const MAX_EVENT_LENGTH = 8_000;
-const MAX_EVENTS = 5_000;
 /** A connection sending more than this many messages in [FLOOD_WINDOW_MS] is closed. */
 const FLOOD_MESSAGES = 20;
 const FLOOD_WINDOW_MS = 10_000;
@@ -53,7 +61,10 @@ export default {
           target: {
             namespace: "android_app",
             package_name: env.APP_PACKAGE,
-            sha256_cert_fingerprints: env.APP_FINGERPRINTS.split(",").map((f) => f.trim()),
+            sha256_cert_fingerprints: String(env.APP_FINGERPRINTS || "")
+              .split(",")
+              .map((f) => f.trim())
+              .filter(Boolean),
           },
         },
       ]);
@@ -61,7 +72,7 @@ export default {
 
     const joinPage = path.match(/^\/join\/([A-Za-z0-9-]+)\/?$/);
     if ((path.startsWith("/api/") || joinPage) && !(await allowed(env, request, path))) {
-      return error(429, "Too many requests, try again in a minute");
+      return error(429, "Too many requests, try again in a minute", { "Retry-After": "60" });
     }
 
     if (joinPage && request.method === "GET") {
@@ -71,7 +82,8 @@ export default {
     }
 
     if (path === "/api/rooms" && request.method === "POST") {
-      const body = await request.json().catch(() => null);
+      const { tooLarge, body } = await readBoundedJson(request);
+      if (tooLarge) return error(413, "Request too large");
       const settings = validSettings(body);
       if (!settings) return error(400, "Bad game settings");
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -79,7 +91,7 @@ export default {
         const ticket = await room(env, code).create(settings);
         if (ticket) return Response.json({ code, ...ticket });
       }
-      return error(503, "No free game code, try again");
+      return error(503, "No free game code, try again", { "Retry-After": "1" });
     }
 
     if ((match = path.match(/^\/api\/rooms\/([A-Z0-9]+)$/)) && request.method === "GET") {
@@ -91,7 +103,9 @@ export default {
     if ((match = path.match(/^\/api\/rooms\/([A-Z0-9]+)\/join$/)) && request.method === "POST") {
       const code = match[1];
       if (!validCode(code)) return error(404, "No such game");
-      const name = validName((await request.json().catch(() => null))?.name);
+      const { tooLarge, body } = await readBoundedJson(request);
+      if (tooLarge) return error(413, "Request too large");
+      const name = validName(body?.name);
       if (!name) return error(400, "Bad name");
       const result = await room(env, code).join(name);
       if (result.error) return error(result.error, result.message);
@@ -105,7 +119,7 @@ export default {
       return room(env, code).fetch(request);
     }
 
-    if (path === "/") return new Response("Divine Gambit relay\n");
+    if (path === "/") return new Response("Divine Gambit relay\n", { headers: { "x-content-type-options": "nosniff" } });
     return error(404, "Not found");
   },
 };
@@ -189,15 +203,9 @@ export class Room extends DurableObject {
       } catch {}
       return;
     }
-    let message;
-    try {
-      message = JSON.parse(data);
-    } catch {
-      return;
-    }
-    if (message.type !== "event") return;
-    const { index, event } = message;
-    if (typeof event !== "string" || event.length === 0 || event.length > MAX_EVENT_LENGTH) return;
+    const parsed = validEventMessage(data);
+    if (!parsed) return;
+    const { index, event } = parsed;
     const meta = await this.ctx.storage.get("meta");
     // Someone else's event took this index first: the sender learns of it from that event's echo.
     if (!meta || index !== meta.count || meta.count >= MAX_EVENTS) return;
@@ -243,7 +251,10 @@ export class Room extends DurableObject {
   async events(count) {
     const stored = await this.ctx.storage.list({ prefix: "e:" });
     const events = [];
-    for (let i = 0; i < count; i++) events.push(stored.get(eventKey(i)));
+    for (let i = 0; i < count; i++) {
+      const entry = stored.get(eventKey(i));
+      if (entry) events.push(entry);
+    }
     return events;
   }
 
@@ -266,6 +277,7 @@ export class Room extends DurableObject {
 async function allowed(env, request, path) {
   const limiter =
     path.endsWith("/socket") ? env.CONNECT_LIMIT : path === "/api/rooms" && request.method === "POST" ? env.CREATE_LIMIT : env.JOIN_LIMIT;
+  if (!limiter) return true;
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   const { success } = await limiter.limit({ key: ip });
   return success;
@@ -275,99 +287,6 @@ function room(env, code) {
   return env.ROOMS.get(env.ROOMS.idFromName(code));
 }
 
-function validSettings(body) {
-  if (!body || typeof body !== "object") return null;
-  const { variant, limit, side } = body;
-  if (typeof variant !== "string" || !/^[A-Z_]{1,32}$/.test(variant)) return null;
-  if (limit !== null && !(Number.isInteger(limit) && limit >= 1 && limit <= 99)) return null;
-  if (side !== "WHITE" && side !== "BLACK") return null;
-  const name = validName(body.name);
-  if (!name) return null;
-  // The Inferno rule (taken pieces can be won back); games from before it was offered are without.
-  const inferno = body.inferno === true;
-  return { variant, limit, side, name, inferno };
-}
-
-/** [name] trimmed, if it's 1 to 20 characters with no control or formatting characters; otherwise null. */
-function validName(name) {
-  if (typeof name !== "string") return null;
-  const trimmed = name.trim();
-  const length = [...trimmed].length;
-  if (length < 1 || length > MAX_NAME_LENGTH || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(trimmed)) return null;
-  return trimmed;
-}
-
-function escapeHtml(text) {
-  return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-}
-
-function opposite(side) {
-  return side === "WHITE" ? "BLACK" : "WHITE";
-}
-
-function eventKey(index) {
-  return "e:" + String(index).padStart(6, "0");
-}
-
-function randomCode() {
-  const bytes = crypto.getRandomValues(new Uint8Array(CODE_LENGTH));
-  return Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
-}
-
-function validCode(code) {
-  return code.length === CODE_LENGTH && [...code].every((c) => CODE_ALPHABET.includes(c));
-}
-
-function error(status, message) {
-  return Response.json({ error: message }, { status });
-}
-
-/**
- * The page a shared link shows when it doesn't open the app directly: the app isn't installed, or
- * the link was opened inside another app's browser.
- */
-function invitationPage(url, code, invitation, env) {
-  const fallback = encodeURIComponent(env.DOWNLOAD_URL);
-  const intent =
-    `intent://${url.host}/join/${code}#Intent;scheme=${url.protocol.replace(":", "")};` +
-    `package=${env.APP_PACKAGE};S.browser_fallback_url=${fallback};end`;
-  const html = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Divine Gambit invitation</title>
-<style>
-  :root { color-scheme: light; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f3eee4;
-         color: #2b2238; font: 17px/1.5 Georgia, "Times New Roman", serif; }
-  main { max-width: 360px; padding: 32px 20px; text-align: center; }
-  h1 { font-weight: normal; font-size: 32px; margin: 0; }
-  .sub { letter-spacing: 0.5em; color: #6d4c9f; margin: 0 0 24px; }
-  .code { font: 600 30px/1 ui-monospace, monospace; letter-spacing: 0.15em; margin: 8px 0 24px; }
-  a.button { display: block; padding: 14px 20px; border-radius: 999px; text-decoration: none;
-             margin: 10px 0; background: #6d4c9f; color: #fff; }
-  a.secondary { background: #fffaf2; color: #2b2238; border: 1.5px solid #2b2238aa; }
-  p.small { font-size: 14px; color: #5f566b; }
-</style>
-</head>
-<body>
-<main>
-  <h1>Divine</h1>
-  <p class="sub">GAMBIT</p>
-  <p>${
-    !invitation
-      ? "There's no game with this code. It may have expired: ask for a new invitation."
-      : invitation.full
-        ? "This game already has two players."
-        : `${escapeHtml(invitation.hostName)} invites you to a game of chess with time travel.`
-  }</p>
-  <div class="code">${code.slice(0, 5)}-${code.slice(5)}</div>
-  <a class="button" href="${intent}">Open in the app</a>
-  <a class="button secondary" href="${env.DOWNLOAD_URL}">Download the app</a>
-  <p class="small">Or open Divine Gambit, choose <b>Join a friend</b> and enter the code.</p>
-</main>
-</body>
-</html>`;
-  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+function error(status, message, extraHeaders = {}) {
+  return Response.json({ error: message }, { status, headers: { "x-content-type-options": "nosniff", ...extraHeaders } });
 }

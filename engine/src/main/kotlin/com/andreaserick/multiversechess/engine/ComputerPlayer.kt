@@ -165,8 +165,8 @@ class ComputerPlayer(
         for (timeline in state.timelines.values) {
             val weight = if (state.isActive(timeline.index)) 1.0 else 0.3
             weights += weight
-            for ((square, piece) in timeline.last.pieces()) {
-                val value = piece.type.value + positional(piece, square)
+            timeline.last.forEachPiece { x, y, piece ->
+                val value = piece.type.value + positional(piece, x, y)
                 total += weight * if (piece.side == me) value else -value
             }
         }
@@ -178,10 +178,10 @@ class ComputerPlayer(
     }
 
     /** A small bonus for pieces near the centre and pawns that have advanced. */
-    private fun positional(piece: Piece, square: Square): Double {
-        val centre = 3.5 - maxOf(kotlin.math.abs(square.x - 3.5), kotlin.math.abs(square.y - 3.5))
+    private fun positional(piece: Piece, x: Int, y: Int): Double {
+        val centre = 3.5 - maxOf(kotlin.math.abs(x - 3.5), kotlin.math.abs(y - 3.5))
         return when {
-            piece.type.isPawnLike -> 0.05 * kotlin.math.abs(square.y - (BOARD_SIZE - 1 - piece.side.promotionRank))
+            piece.type.isPawnLike -> 0.05 * kotlin.math.abs(y - (BOARD_SIZE - 1 - piece.side.promotionRank))
             piece.type == PieceType.KING -> 0.0
             else -> 0.04 * centre
         }
@@ -195,9 +195,9 @@ class ComputerPlayer(
     private fun bestCaptureValue(state: GameState, attacker: Side): Int {
         var best = 0
         for (timeline in state.playableTimelines(attacker)) {
-            for ((square, piece) in timeline.last.pieces()) {
-                if (piece.side != attacker) continue
-                for (move in state.generateMoves(Pos(timeline.index, timeline.end, square.x, square.y), capturesOnly = true)) {
+            timeline.last.forEachPiece { x, y, piece ->
+                if (piece.side != attacker) return@forEachPiece
+                for (move in state.generateMoves(Pos(timeline.index, timeline.end, x, y), capturesOnly = true)) {
                     val value = state.pieceAt(move.to)?.type?.value ?: 1
                     if (value > best) best = value
                 }

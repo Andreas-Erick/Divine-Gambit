@@ -21,9 +21,11 @@ val debugRelayUrl: String = Properties().apply {
 /** Points a build at [url]: the app talks to it, and its /join/ links open the app. */
 fun com.android.build.api.dsl.VariantDimension.relay(url: String) {
     val uri = URI(url.ifBlank { "https://relay.invalid" })
+    // Android App Links (autoVerify) only apply to verifiable web domains, not localhost dev relays.
+    val appLinkUri = uri.takeIf { it.host?.contains('.') == true } ?: URI(relayUrl.ifBlank { "https://relay.invalid" })
     buildConfigField("String", "RELAY_URL", "\"$url\"")
-    manifestPlaceholders["relayScheme"] = uri.scheme
-    manifestPlaceholders["relayHost"] = uri.host
+    manifestPlaceholders["relayScheme"] = appLinkUri.scheme ?: "https"
+    manifestPlaceholders["relayHost"] = appLinkUri.host ?: "relay.invalid"
 }
 
 android {
@@ -34,8 +36,8 @@ android {
         applicationId = "com.andreaserick.multiversechess"
         minSdk = 24
         targetSdk = 37
-        versionCode = 11
-        versionName = "1.6.1"
+        versionCode = 12
+        versionName = "1.6.2"
         relay(relayUrl)
     }
 
@@ -76,6 +78,12 @@ android {
         compose = true
         buildConfig = true
     }
+
+    testOptions {
+        unitTests.all {
+            it.useJUnitPlatform()
+        }
+    }
 }
 
 dependencies {
@@ -96,4 +104,8 @@ dependencies {
     // Runs language models on the phone (arm64 and x86_64 only).
     implementation(libs.litertlm)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation(libs.kotlin.test.junit5)
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }

@@ -64,39 +64,71 @@ object SavedGame {
             val rest = line.substringAfter(' ', "")
             val words = rest.split(' ')
             when (key) {
-                "mode" -> mode = GameMode(
-                    computerSide = words[0].takeIf { it != "-" }?.let { Side.valueOf(it) },
-                    variant = Variant.valueOf(words[1]),
-                    timelineLimit = words[2].takeIf { it != "-" }?.toInt(),
-                    aiOpponent = "ai" in words.drop(3),
-                    inferno = "inferno" in words.drop(3),
-                )
+                "mode" -> {
+                    require(words.size >= 3) { "Malformed mode line" }
+                    val limit = words[2].takeIf { it != "-" }?.toInt()
+                    require(limit == null || limit in 0..99) { "Invalid timeline limit: $limit" }
+                    mode = GameMode(
+                        computerSide = words[0].takeIf { it != "-" }?.let { Side.valueOf(it) },
+                        variant = Variant.valueOf(words[1]),
+                        timelineLimit = limit,
+                        aiOpponent = "ai" in words.drop(3),
+                        inferno = "inferno" in words.drop(3),
+                    )
+                }
                 "outcome" -> {
+                    require(words.size == 2 && (words[1] == "0" || words[1] == "1")) { "Malformed outcome line" }
                     outcome = decodeOutcome(words[0])
                     undecided = words[1] == "1"
                 }
-                "side" -> side = Side.valueOf(words[0])
+                "side" -> {
+                    require(words.size == 1) { "Malformed side line" }
+                    side = Side.valueOf(words[0])
+                }
                 "timeline" -> {
+                    require(words.size == 3) { "Malformed timeline line" }
                     val index = words[0].toInt()
-                    timelines[index] = Triple(index, words[1].toInt(), words[2].takeIf { it != "-" }?.toInt()) to ArrayList()
+                    val tlStart = words[1].toInt()
+                    val parent = words[2].takeIf { it != "-" }?.toInt()
+                    require(tlStart >= 0 && (index == 0) == (parent == null)) { "Invalid timeline metadata: $line" }
+                    timelines[index] = Triple(index, tlStart, parent) to ArrayList()
                     current = index
                 }
-                "board" -> timelines.getValue(current!!).second += decodeBoard(rest)
-                "move" -> moves += decodePos(words[0]) to decodePos(words[1])
-                "last" -> last += decodePos(words[0]) to decodePos(words[1])
+                "board" -> timelines.getValue(requireNotNull(current) { "Board before timeline" }).second += decodeBoard(rest)
+                "move" -> {
+                    require(words.size == 2) { "Malformed move line" }
+                    moves += decodePos(words[0]) to decodePos(words[1])
+                }
+                "last" -> {
+                    require(words.size == 2) { "Malformed last line" }
+                    last += decodePos(words[0]) to decodePos(words[1])
+                }
                 "log" -> log += rest
-                "soul" -> souls += Soul(PieceType.entries.first { it.letter == words[0][0] }, Side.valueOf(words[1]), words[2] == "1")
-                "returned" -> returned = decodePos(words[0])
+                "soul" -> {
+                    require(words.size == 3 && words[0].length == 1 && (words[2] == "0" || words[2] == "1")) { "Malformed soul line" }
+                    souls += Soul(PieceType.entries.first { it.letter == words[0][0] }, Side.valueOf(words[1]), words[2] == "1")
+                }
+                "returned" -> {
+                    require(words.size == 1) { "Malformed returned line" }
+                    returned = decodePos(words[0])
+                }
             }
         }
         val gameMode = mode ?: return null
+        if (0 !in timelines) return null
+        for ((index, value) in timelines) {
+            val parent = value.first.third
+            if (index != 0 && (parent == null || parent !in timelines)) return null
+        }
         val start = GameState(
             timelines.mapValues { (_, value) -> Timeline(value.first.first, value.first.second, value.second, value.first.third) },
             side,
             timelineLimit = gameMode.timelineLimit,
         )
-        // The last turn's moves are only shown, as highlights; keep the ones that can be told apart.
-        val lastTurn = last.map { (from, to) -> Move(from, to) }
+        if (returned != null && start.boardAt(returned.l, returned.t) == null) return null
+        // The last turn's moves are only shown, as highlights; keep the ones on existing boards.
+        val lastTurn = last.filter { (from, to) -> start.boardAt(from.l, from.t) != null && start.boardAt(to.l, to.t) != null }
+            .map { (from, to) -> Move(from, to) }
         var session = GameSession(
             gameMode, state = start, outcome = outcome, undecided = undecided, log = log, lastTurn = lastTurn, souls = souls, returned = returned,
         )
@@ -130,7 +162,13 @@ object SavedGame {
 
     internal fun encode(pos: Pos) = "${pos.l},${pos.t},${pos.x},${pos.y}"
 
-    internal fun decodePos(text: String): Pos = text.split(',').map { it.toInt() }.let { (l, t, x, y) -> Pos(l, t, x, y) }
+    internal fun decodePos(text: String): Pos {
+        val parts = text.split(',')
+        require(parts.size == 4) { "Malformed position: $text" }
+        val (l, t, x, y) = parts.map { it.toInt() }
+        require(t >= 0 && Square.isOnBoard(x, y)) { "Position out of bounds: $text" }
+        return Pos(l, t, x, y)
+    }
 
     /**
      * 64 squares from a1 along the ranks: `.` for empty, or the piece's letter (upper case White)

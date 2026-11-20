@@ -216,12 +216,13 @@ internal class TurnWalker(
         }
         if (mandatory.isEmpty() && optionalLeft == 0) return null
         val required = mandatory.associateWith { state.timelines.getValue(it).end }
-        val (advancing, optional) = state.allMoves().partition { move ->
+        val all = state.allMoves()
+        val (advancing, optional) = all.partition { move ->
             move.from.l in required || required[move.to.l] == move.to.t
         }
         val tried = when {
             optionalLeft == 0 -> emptyList()
-            onlyUsefulOptional -> usefulOptional(state, advancing + optional, optional)
+            onlyUsefulOptional -> usefulOptional(state, all, optional)
             else -> optional
         }
         if (!inheritRefutations) {

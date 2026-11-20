@@ -39,7 +39,10 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.andreaserick.multiversechess.engine.GameSession
 import com.andreaserick.multiversechess.engine.Outcome
@@ -50,17 +53,25 @@ import com.andreaserick.multiversechess.ui.GameScreen
 import com.andreaserick.multiversechess.ui.InfernoScreen
 import com.andreaserick.multiversechess.ui.InvitationScreen
 import com.andreaserick.multiversechess.ui.LobbyScreen
+import com.andreaserick.multiversechess.ui.LocalReducedMotion
 import com.andreaserick.multiversechess.ui.MenuScreen
 import com.andreaserick.multiversechess.ui.MultiverseChessTheme
 import com.andreaserick.multiversechess.ui.Palette
 import com.andreaserick.multiversechess.ui.PuzzleListScreen
 import com.andreaserick.multiversechess.ui.portal
+import kotlin.math.min
 
 class MainActivity : ComponentActivity() {
     private val viewModel: GameViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLog.installCrashTrap(applicationContext.filesDir)
+        lifecycle.addObserver(
+            LifecycleEventObserver { _, event ->
+                viewModel.setAppInForeground(event.targetState.isAtLeast(Lifecycle.State.RESUMED))
+            },
+        )
         if (savedInstanceState == null) openInvitation(intent)
         // The app is always dark, so system bar icons are always light.
         val bars = SystemBarStyle.dark(Palette.background.copy(alpha = 0f).toArgb())
@@ -100,7 +111,8 @@ fun MultiverseChessApp(modifier: Modifier = Modifier, viewModel: GameViewModel =
         viewModel.showingPuzzles -> Screen.PUZZLES
         else -> Screen.MENU
     }
-    Crossfade(screen, label = "screen") { shown ->
+    val reducedMotion = LocalReducedMotion.current
+    Crossfade(screen, animationSpec = tween(if (reducedMotion) 0 else 300), label = "screen") { shown ->
         Screen(shown, viewModel, modifier)
     }
 }
@@ -122,6 +134,7 @@ private fun GameBoard(
         aiRemark = viewModel.aiRemark,
         nextPuzzle = viewModel.nextPuzzle,
         onTap = viewModel::tap,
+        onDeselect = viewModel::deselect,
         onSubmit = viewModel::submit,
         onUndo = viewModel::undo,
         onResign = viewModel::resign,
@@ -171,18 +184,25 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
             // the passage, so it keeps its colours while the other is already in its own, and
             // nothing has to be laid out again mid-passage.
             val inHell = viewModel.inHell
+            val reducedMotion = LocalReducedMotion.current
+            val windowFocused = LocalWindowInfo.current.isWindowFocused
             val descent = remember { Animatable(if (inHell) 1f else 0f) }
             val boardLayer = rememberGraphicsLayer()
             val hellLayer = rememberGraphicsLayer()
             var stillBoard by remember { mutableStateOf<ImageBitmap?>(null) }
             var stillHell by remember { mutableStateOf<ImageBitmap?>(null) }
-            LaunchedEffect(inHell) {
+            LaunchedEffect(inHell, reducedMotion) {
                 if (inHell == (descent.value == 1f)) {
                     Palette.heat = if (inHell) 1f else 0f
                     return@LaunchedEffect
                 }
                 stillHell = null
                 stillBoard = null
+                if (reducedMotion) {
+                    Palette.heat = if (inHell) 1f else 0f
+                    descent.snapTo(if (inHell) 1f else 0f)
+                    return@LaunchedEffect
+                }
                 if (inHell) {
                     stillBoard = boardLayer.toImageBitmap()
                     Palette.heat = 1f
@@ -195,13 +215,19 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                 stillBoard = null
                 stillHell = null
             }
-            // Seconds since the passage began, to make its fire crawl.
+            // Seconds since the passage began, to make its fire crawl (clamped against frame spikes).
             val passing by remember { derivedStateOf { descent.value > 0f && descent.value < 1f } }
             val clock = remember { mutableFloatStateOf(0f) }
-            LaunchedEffect(passing) {
-                if (!passing) return@LaunchedEffect
-                val start = withFrameNanos { it }
-                while (true) withFrameNanos { clock.floatValue = (it - start) / 1e9f }
+            LaunchedEffect(passing, windowFocused, reducedMotion) {
+                if (!passing || !windowFocused || reducedMotion) return@LaunchedEffect
+                var lastNanos = withFrameNanos { it }
+                while (true) {
+                    withFrameNanos { nanos ->
+                        val dt = min((nanos - lastNanos) / 1e9f, 0.1f).coerceAtLeast(0f)
+                        lastNanos = nanos
+                        clock.floatValue += dt
+                    }
+                }
             }
             DisposableEffect(Unit) { onDispose { Palette.heat = 0f } }
             val hellShown by remember { derivedStateOf { descent.value > 0f } }

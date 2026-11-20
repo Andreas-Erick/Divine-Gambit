@@ -16,8 +16,10 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalWindowInfo
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
@@ -34,10 +36,19 @@ import kotlin.random.Random
  */
 @Composable
 fun Heavens(light: () -> Offset?, fork: () -> Float?, modifier: Modifier = Modifier) {
+    val reducedMotion = LocalReducedMotion.current
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
     val time = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
-        val start = withFrameNanos { it }
-        while (true) withFrameNanos { time.floatValue = (it - start) / 1e9f }
+    LaunchedEffect(reducedMotion, windowFocused) {
+        if (reducedMotion || !windowFocused) return@LaunchedEffect
+        var lastNanos = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { nanos ->
+                val dt = min((nanos - lastNanos) / 1e9f, 0.1f).coerceAtLeast(0f)
+                lastNanos = nanos
+                time.floatValue += dt
+            }
+        }
     }
     val stars = remember {
         val random = Random(7)
@@ -47,6 +58,8 @@ fun Heavens(light: () -> Offset?, fork: () -> Float?, modifier: Modifier = Modif
         val random = Random(11)
         List(28) { 260f + random.nextFloat() * 140f to 0.03f + random.nextFloat() * 0.05f }
     }
+    val rayPath = remember { Path() }
+    val timelinePath = remember { Path() }
     // Each part on its own layer: the timeline only moves when the card does.
     Canvas(modifier.graphicsLayer()) {
         val u = size.width / 412f
@@ -54,13 +67,13 @@ fun Heavens(light: () -> Offset?, fork: () -> Float?, modifier: Modifier = Modif
         val t = time.floatValue
         drawSky(c, u)
         drawSpheres(c, u, t)
-        drawRays(c, u, rays)
+        drawRays(c, u, rays, rayPath)
         drawLight(c, u, t)
         drawStars(stars, t)
     }
     Canvas(modifier.graphicsLayer()) {
         val u = size.width / 412f
-        drawTimeline((fork() ?: (size.height * 0.84f)).coerceAtMost(size.height - 120f * u), u)
+        drawTimeline((fork() ?: (size.height * 0.84f)).coerceAtMost(size.height - 120f * u), u, timelinePath)
     }
     Canvas(modifier.graphicsLayer()) { drawWarmth(size.width / 412f, time.floatValue) }
 }
@@ -136,8 +149,7 @@ private fun DrawScope.drawSpheres(c: Offset, u: Float, t: Float) {
 }
 
 /** Faint rays from the light, fading in away from the title. */
-private fun DrawScope.drawRays(c: Offset, u: Float, rays: List<Pair<Float, Float>>) {
-    val path = Path()
+private fun DrawScope.drawRays(c: Offset, u: Float, rays: List<Pair<Float, Float>>, path: Path) {
     for ((i, ray) in rays.withIndex()) {
         val (length, alpha) = ray
         val a = 2f * PI.toFloat() * i / rays.size
@@ -186,35 +198,55 @@ private fun DrawScope.drawStars(stars: List<Star>, t: Float) {
     }
 }
 
+private val WARMTH_OUTER_STOPS = arrayOf(
+    0f to Color(0xFFE0442B).copy(alpha = 0.55f),
+    0.35f to Color(0xFFB3240F).copy(alpha = 0.32f),
+    0.7f to Color(0xFF7A0E08).copy(alpha = 0.12f),
+    1f to Color.Transparent,
+)
+
+private val WARMTH_CORE_STOPS = arrayOf(
+    0f to Color(0xFFFF9A4A).copy(alpha = 0.45f),
+    0.5f to Color(0xFFE0442B).copy(alpha = 0.15f),
+    1f to Color.Transparent,
+)
+
+private val WARMTH_WAVE_STOPS = arrayOf(
+    0.35f to Color.Transparent,
+    0.75f to Color(0xFFE0442B).copy(alpha = 0.16f),
+    1f to Color.Transparent,
+)
+
+private val TIMELINE_END_OFFSETS = floatArrayOf(-348f, -68f, 167f)
+
 /**
  * One timeline coming in from the left at [forkY] and branching in three, as timelines do in the
  * game: one rises behind the card toward the heavens, one goes on, one descends into the warmth.
  */
-private fun DrawScope.drawTimeline(forkY: Float, u: Float) {
+private fun DrawScope.drawTimeline(forkY: Float, u: Float, curve: Path) {
     val fork = Offset(62f * u, forkY)
     val start = Offset(-10f * u, forkY)
     val right = size.width + 18f * u
-    val ends = listOf(Offset(right, forkY - 348f * u), Offset(right, forkY - 68f * u), Offset(right, forkY + 167f * u))
-    val curves = buildList {
-        add(Path().apply {
-            moveTo(start.x, start.y)
-            cubicTo(20f * u, forkY, 40f * u, forkY, fork.x, fork.y)
-        })
-        for (end in ends) add(Path().apply {
-            moveTo(fork.x, fork.y)
-            cubicTo(fork.x + 30f * u, fork.y + (end.y - fork.y) * 0.6f, end.x - 160f * u, end.y, end.x, end.y)
-        })
-    }
     val thread = Brush.horizontalGradient(
         0f to Color(0xFF9FF2E4).copy(alpha = 0.85f),
         0.55f to Color(0xFF3FC1B0).copy(alpha = 0.6f),
         1f to Color(0xFF3FC1B0).copy(alpha = 0.25f),
     )
-    for (curve in curves) {
-        // A soft glow around each line, then the line.
+    fun strokeCurve() {
         drawPath(curve, Color(0xFF3FC1B0).copy(alpha = 0.08f), style = Stroke(12f * u, cap = StrokeCap.Round))
         drawPath(curve, Color(0xFF3FC1B0).copy(alpha = 0.14f), style = Stroke(6f * u, cap = StrokeCap.Round))
         drawPath(curve, thread, style = Stroke(2.6f * u, cap = StrokeCap.Round))
+    }
+    curve.reset()
+    curve.moveTo(start.x, start.y)
+    curve.cubicTo(20f * u, forkY, 40f * u, forkY, fork.x, fork.y)
+    strokeCurve()
+    for (dy in TIMELINE_END_OFFSETS) {
+        val endY = forkY + dy * u
+        curve.reset()
+        curve.moveTo(fork.x, fork.y)
+        curve.cubicTo(fork.x + 30f * u, fork.y + (endY - fork.y) * 0.6f, right - 160f * u, endY, right, endY)
+        strokeCurve()
     }
     drawCircle(Color(0xFF9FF2E4), 3.2f * u, fork)
 }
@@ -230,12 +262,12 @@ private fun DrawScope.drawWarmth(u: Float, t: Float) {
     val swell = ease((t / 6f) % 1f)
     ellipse(
         Offset(cx, size.height + 45f * u), 330f * u, (210f + 40f * swell) * u,
-        listOf(0f to Color(0xFFE0442B).copy(alpha = 0.55f), 0.35f to Color(0xFFB3240F).copy(alpha = 0.32f), 0.7f to Color(0xFF7A0E08).copy(alpha = 0.12f), 1f to Color.Transparent),
+        WARMTH_OUTER_STOPS,
         alpha = 0.8f + 0.2f * swell,
     )
     ellipse(
         Offset(cx, size.height + 30f * u), 170f * u, 90f * u,
-        listOf(0f to Color(0xFFFF9A4A).copy(alpha = 0.45f), 0.5f to Color(0xFFE0442B).copy(alpha = 0.15f), 1f to Color.Transparent),
+        WARMTH_CORE_STOPS,
         alpha = 0.55f + 0.45f * ease((t / 3.7f) % 1f),
     )
     for (i in 0 until 3) {
@@ -243,16 +275,16 @@ private fun DrawScope.drawWarmth(u: Float, t: Float) {
         val alpha = if (p < 0.3f) p / 0.3f else 1f - (p - 0.3f) / 0.7f
         ellipse(
             Offset(cx, size.height + 35f * u), (120f + 300f * p) * u, (50f + 210f * p) * u,
-            listOf(0.35f to Color.Transparent, 0.75f to Color(0xFFE0442B).copy(alpha = 0.16f), 1f to Color.Transparent),
+            WARMTH_WAVE_STOPS,
             alpha = alpha,
         )
     }
 }
 
 /** A radial gradient on an ellipse, [rx] by [ry], centered on [c]. */
-private fun DrawScope.ellipse(c: Offset, rx: Float, ry: Float, stops: List<Pair<Float, Color>>, alpha: Float) {
+private fun DrawScope.ellipse(c: Offset, rx: Float, ry: Float, stops: Array<Pair<Float, Color>>, alpha: Float) {
     withTransform({ scale(1f, ry / rx, pivot = c) }) {
-        drawCircle(Brush.radialGradient(*stops.toTypedArray(), center = c, radius = rx), radius = rx, center = c, alpha = alpha.coerceIn(0f, 1f))
+        drawCircle(Brush.radialGradient(*stops, center = c, radius = rx), radius = rx, center = c, alpha = alpha.coerceIn(0f, 1f))
     }
 }
 

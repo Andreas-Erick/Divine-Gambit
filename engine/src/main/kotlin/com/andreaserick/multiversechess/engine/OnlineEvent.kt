@@ -34,18 +34,32 @@ sealed interface OnlineEvent {
 
         /** The event in [text], or null if it can't be read. */
         fun decode(text: String): OnlineEvent? = try {
-            val words = text.trim().split(' ')
+            val trimmed = text.trim()
+            if (trimmed.isEmpty()) return null
+            val words = trimmed.split(' ')
             when (words[0]) {
-                "turn" -> Turn(
-                    moves = words.drop(3).map { move ->
-                        val (from, to) = move.split('>')
-                        SavedGame.decodePos(from) to SavedGame.decodePos(to)
-                    },
-                    outcome = SavedGame.decodeOutcome(words[1]),
-                    undecided = words[2] == "1",
-                )
-                "end" -> End(SavedGame.decodeOutcome(words[1])).takeIf { it.outcome != Outcome.Ongoing }
-                "free" -> Free(words[1].toInt(), SavedGame.decodePos(words[2]))
+                "turn" -> {
+                    require(words.size >= 4 && (words[2] == "0" || words[2] == "1")) { "Malformed turn event" }
+                    Turn(
+                        moves = words.drop(3).map { move ->
+                            val parts = move.split('>')
+                            require(parts.size == 2) { "Malformed move pair" }
+                            SavedGame.decodePos(parts[0]) to SavedGame.decodePos(parts[1])
+                        },
+                        outcome = SavedGame.decodeOutcome(words[1]),
+                        undecided = words[2] == "1",
+                    )
+                }
+                "end" -> {
+                    require(words.size == 2) { "Malformed end event" }
+                    End(SavedGame.decodeOutcome(words[1])).takeIf { it.outcome != Outcome.Ongoing }
+                }
+                "free" -> {
+                    require(words.size == 3) { "Malformed free event" }
+                    val index = words[1].toInt()
+                    require(index >= 0) { "Negative soul index" }
+                    Free(index, SavedGame.decodePos(words[2]))
+                }
                 else -> null
             }
         } catch (_: RuntimeException) {

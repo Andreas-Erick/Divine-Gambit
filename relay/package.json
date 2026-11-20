@@ -1,9 +1,11 @@
 {
   "name": "multiverse-chess-relay",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "wrangler dev --ip 0.0.0.0",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "node --test test/relay.test.mjs"
   },
   "devDependencies": {
     "wrangler": "4.151.0"

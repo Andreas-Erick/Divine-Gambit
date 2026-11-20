@@ -1,5 +1,6 @@
 package com.andreaserick.multiversechess.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +48,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -85,6 +91,7 @@ fun GameScreen(
     onStartPuzzle: (Puzzle) -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
+    onDeselect: () -> Unit = {},
     /** With the Inferno rule: the player's pieces waiting there. */
     infernoSouls: List<SoulView> = emptyList(),
     /** Why the Inferno can't be entered now, or null if it can. */
@@ -151,7 +158,29 @@ fun GameScreen(
         slice?.let { camera.frame(state.sliceArea(it, anchor), TIMELINE_MIN_BOARD) }
     }
 
-    Box(modifier.fillMaxSize()) {
+    BackHandler(enabled = slice != null) { slice = null }
+
+    Box(
+        modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                    when {
+                        slice != null -> {
+                            slice = null
+                            true
+                        }
+                        session.selected != null -> {
+                            onDeselect()
+                            true
+                        }
+                        else -> false
+                    }
+                } else {
+                    false
+                }
+            },
+    ) {
         MultiverseView(session, camera, onTap, Modifier.fillMaxSize(), slice)
 
         // Top: back, title and tools, floating over the multiverse on a band of the background that
@@ -189,6 +218,8 @@ fun GameScreen(
                     } + if (session.mode.inferno) " · Inferno" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.inkSoft,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             if (puzzle != null) {
@@ -365,7 +396,12 @@ fun GameScreen(
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         itemsIndexed(session.log) { i, line ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("${i + 1}", style = MaterialTheme.typography.labelMedium, color = Palette.inkSoft, modifier = Modifier.width(28.dp))
+                                Text(
+                                    "${i + 1}",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = TABULAR_NUMS),
+                                    color = Palette.inkSoft,
+                                    modifier = Modifier.width(28.dp),
+                                )
                                 Text(line, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
@@ -468,7 +504,7 @@ private fun InfernoBar(souls: List<SoulView>, closed: String?, onPlaced: (Offset
         Column(Modifier.weight(1f)) {
             Text(
                 if (souls.isEmpty()) "Inferno" else "Inferno · " + souls.joinToString("  ") { "${pieceSymbol(it.soul.type)} ${it.solved}/${it.soul.trials}" },
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = TABULAR_NUMS),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

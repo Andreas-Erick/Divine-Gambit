@@ -2,6 +2,10 @@
 
 # Divine Gambit (Android)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-e8c77a.svg)](LICENSE)
+[![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-2fa79a.svg)](app/build.gradle.kts)
+[![Kotlin & Compose](https://img.shields.io/badge/Kotlin%202.4-Jetpack%20Compose-6e7fa6.svg)](gradle/libs.versions.toml)
+
 Chess with time travel and parallel timelines, for Android. Send a knight two turns into the past
 and the timeline splits; play both futures at once; protect your kings in the present *and* the
 past. Play the computer, a friend on the same phone, or a friend on their own phone, anywhere. And
@@ -335,9 +339,71 @@ The engine's tests (`./gradlew :engine:test`) cover movement in all four dimensi
 jumping, active and inactive timelines, the present moving back, checks through time against kings
 in the past, escapes that only exist when the boards are played in a particular order, castling,
 en passant, promotion, the fairy pieces, every puzzle, the session and undo logic, the computer
-player, and online games: replaying them, and refusing moves a player isn't allowed to send.
+player, boundary/fuzz invariants, and online games: replaying them, and refusing moves a player
+isn't allowed to send.
+
+### Architecture & key trade-offs
+
+```mermaid
+flowchart LR
+    subgraph App[":app (Android / Jetpack Compose)"]
+        UI["MultiverseView & Screens\n(Canvas + Material 3)"]
+        VM["GameViewModel\n(Session, Inferno Clock, Saves)"]
+        AI["AI Adapters\n(Gemini / LAN Server / LiteRT-LM)"]
+        RC["RelayClient\n(OkHttp + WebSocket)"]
+    end
+
+    subgraph Engine[":engine (Pure JVM Kotlin)"]
+        GS["Immutable GameState & GameSession"]
+        TW["TurnWalker & FixedBoardsSearch"]
+        CP["ComputerPlayer & PuzzleGenerator"]
+    end
+
+    subgraph Cloud["relay/ (Cloudflare Worker)"]
+        DO["Room Durable Object\n(Ordered Event Log)"]
+    end
+
+    UI -->|Pos taps / commands| VM
+    VM -->|Immutable updates| GS
+    VM -->|Background coroutines| TW
+    VM -->|Shortlist & draft check| CP
+    VM <-->|Constrained prompts| AI
+    VM <-->|Signed seat events| RC
+    RC <-->|HTTPS / WSS| DO
+```
+
+* **Headless immutable rule kernel (`:engine`):** Every board, timeline, move search, puzzle solver,
+  and online event verifier lives in plain JVM Kotlin with zero Android dependencies, making
+  hundred-thousand-position fuzzing fast and deterministic.
+* **Incremental 4D check detection:** Because moves only append new boards and never mutate past
+  ones, `isInCheckAfter` inspects only attack rays intersecting newly created boards rather than
+  rescanning the whole multiverse.
+* **Dumb relay, smart peers (`relay/`):** The Cloudflare Durable Object orders and stamps events by
+  seat without knowing chess rules; both devices independently replay every move and verify claimed
+  checkmates or stalemates.
+* **Engine-guarded language models:** AI opponents choose by index from `ComputerPlayer.shortlist`
+  and AI-authored puzzles must pass `PuzzleDrafts` + `PuzzleSolver` before reaching the board, so a
+  hallucinating model can never make an illegal move or present an unsolvable puzzle.
 
 ## Building
+
+### Quickstart (CLI)
+
+* **Prerequisites:** JDK 17+ (or the Java runtime bundled with Android Studio Ladybug+), Android SDK
+  (API 37), and Node.js 20+ (optional, for the `relay/` worker).
+
+```bash
+# Run pure JVM rule-engine & fuzz tests
+./gradlew :engine:test
+
+# Run Android unit tests, Lint checks, and assemble a debug APK
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+
+# Run relay protocol & security tests
+npm --prefix relay test
+```
+
+### Android Studio
 
 1. Open the repository root in **Android Studio** (Ladybug or newer) and let Gradle sync.
    It uses AGP 9.2, Kotlin 2.4 and Jetpack Compose, with Gradle 9.4.1 through the wrapper

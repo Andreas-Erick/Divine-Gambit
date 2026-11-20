@@ -60,6 +60,9 @@ data class GameSession(
     /** Legal moves of the selected piece. */
     val targets: List<Move> get() = selected?.let { state.legalMovesFrom(it) } ?: emptyList()
 
+    /** Clears the current square selection, if any. */
+    fun clearSelection(): GameSession = if (selected == null) this else copy(selected = null, message = null)
+
     fun tap(pos: Pos): GameSession {
         if ((outcome != Outcome.Ongoing && !isExploring) || isComputerTurn || isRemoteTurn) return this
         selected?.let { sel ->
@@ -138,7 +141,7 @@ data class GameSession(
             undecided = undecided,
             lastTurn = state.turnMoves,
             returned = null,
-            previous = this,
+            previous = boundedHistory(),
         )
     }
 
@@ -243,7 +246,7 @@ data class GameSession(
             lastTurn = moves,
             souls = souls + taken,
             returned = null,
-            previous = this,
+            previous = boundedHistory(),
         )
     }
 
@@ -400,6 +403,20 @@ data class GameSession(
     private fun logLine(before: GameState, move: Move): String =
         "${before.sideToMove.displayName}: ${Notation.describe(before, move)}"
 
+    /** Caps retained undo frames at turn boundaries while keeping every move of the current turn. */
+    private fun boundedHistory(): GameSession {
+        var depth = 0
+        var cursor: GameSession? = this
+        while (cursor != null && depth <= MAX_UNDO_STATES) {
+            depth++
+            cursor = cursor.previous
+        }
+        return if (depth <= MAX_UNDO_STATES) this else trimTo(MAX_UNDO_STATES)!!
+    }
+
+    private fun trimTo(remaining: Int): GameSession? =
+        if (remaining <= 0) null else copy(previous = previous?.trimTo(remaining - 1))
+
     companion object {
         /**
          * Limits of the search for a legal reply after each turn. Generous, since it runs off the
@@ -410,5 +427,8 @@ data class GameSession(
 
         /** Timelines each player may create, unless a game chooses otherwise: with more, the check above can't always decide in time. */
         const val DEFAULT_TIMELINE_LIMIT = 4
+
+        /** Maximum retained undo states across past turns, keeping session memory bounded. */
+        const val MAX_UNDO_STATES = 256
     }
 }

@@ -88,9 +88,9 @@ class GameState(
     /** Every move the side to move can make right now. */
     fun allMoves(): List<Move> = buildList {
         for (timeline in playableTimelines()) {
-            for ((square, piece) in timeline.last.pieces()) {
+            timeline.last.forEachPiece { x, y, piece ->
                 if (piece.side == sideToMove) {
-                    addAll(generateMoves(Pos(timeline.index, timeline.end, square.x, square.y), capturesOnly = false))
+                    addAll(generateMoves(Pos(timeline.index, timeline.end, x, y), capturesOnly = false))
                 }
             }
         }
@@ -147,16 +147,21 @@ class GameState(
     internal fun captures(attacker: Side, firstOnly: Boolean = false, target: (Piece) -> Boolean = { true }): List<Move> {
         val found = ArrayList<Move>()
         for (timeline in playableTimelines(attacker)) {
-            for ((square, piece) in timeline.last.pieces()) {
-                if (piece.side != attacker) continue
-                for (move in generateMoves(Pos(timeline.index, timeline.end, square.x, square.y), capturesOnly = true)) {
+            var done = false
+            timeline.last.forEachPiece { x, y, piece ->
+                if (done || piece.side != attacker) return@forEachPiece
+                for (move in generateMoves(Pos(timeline.index, timeline.end, x, y), capturesOnly = true)) {
                     val taken = pieceAt(move.to)
                     if (taken != null && taken.side != attacker && target(taken)) {
                         found += move
-                        if (firstOnly) return found
+                        if (firstOnly) {
+                            done = true
+                            return@forEachPiece
+                        }
                     }
                 }
             }
+            if (done) return found
         }
         return found
     }

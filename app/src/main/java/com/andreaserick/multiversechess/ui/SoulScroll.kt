@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,12 +51,14 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -75,12 +78,28 @@ fun SoulScroll(
 ) {
     var middle by remember { mutableStateOf<Offset?>(null) }
     val haptics = LocalHapticFeedback.current
-    val unroll = remember { Animatable(0f) }
+    val reducedMotion = LocalReducedMotion.current
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    val unroll = remember { Animatable(if (reducedMotion) 1f else 0f) }
     val time = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) { unroll.animateTo(1f, tween(900, easing = CubicBezierEasing(0.2f, 0f, 0.1f, 1f))) }
-    LaunchedEffect(Unit) {
-        val start = withFrameNanos { it }
-        while (true) withFrameNanos { time.floatValue = (it - start) / 1e9f }
+    val edgePath = remember { Path() }
+    LaunchedEffect(reducedMotion) {
+        if (reducedMotion) {
+            unroll.snapTo(1f)
+        } else {
+            unroll.animateTo(1f, tween(900, easing = CubicBezierEasing(0.2f, 0f, 0.1f, 1f)))
+        }
+    }
+    LaunchedEffect(reducedMotion, windowFocused) {
+        if (reducedMotion || !windowFocused) return@LaunchedEffect
+        var lastNanos = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { nanos ->
+                val dt = min((nanos - lastNanos) / 1e9f, 0.1f).coerceAtLeast(0f)
+                lastNanos = nanos
+                time.floatValue += dt
+            }
+        }
     }
     BackHandler(enabled = active, onBack = onDismiss)
     // Most precious first.
@@ -127,7 +146,7 @@ fun SoulScroll(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .drawBehind { drawParchment(time.floatValue) }
+                        .drawBehind { drawParchment(time.floatValue, edgePath) }
                         .padding(horizontal = 26.dp, vertical = 22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -166,15 +185,20 @@ fun SoulScroll(
                     InkRule(Modifier.inked(ordered.size + 1))
                     Spacer(Modifier.height(6.dp))
                     Row(Modifier.fillMaxWidth().inked(ordered.size + 1), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "Turn back",
-                            modifier = Modifier
+                        Box(
+                            Modifier
+                                .heightIn(min = 48.dp)
                                 .clickable(role = Role.Button) { if (active) onDismiss() }
-                                .padding(vertical = 8.dp, horizontal = 4.dp),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontStyle = FontStyle.Italic,
-                            color = Ink.copy(alpha = 0.8f),
-                        )
+                                .padding(horizontal = 8.dp),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            Text(
+                                "Turn back",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontStyle = FontStyle.Italic,
+                                color = Ink.copy(alpha = 0.8f),
+                            )
+                        }
                         Spacer(Modifier.weight(1f))
                         WaxSeal()
                     }
@@ -191,6 +215,7 @@ private fun SoulLine(soul: SoulView, modifier: Modifier, onClick: () -> Unit) {
     Row(
         modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clickable(role = Role.Button, onClickLabel = "Seek this soul", onClick = onClick)
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -278,7 +303,7 @@ private fun Roller(modifier: Modifier = Modifier) {
  * Old parchment: yellowed, darker toward its edges, stained, and singed along both sides, where
  * embers still glow faintly. [t] (seconds) makes them, and the candlelight from above, flicker.
  */
-private fun DrawScope.drawParchment(t: Float) {
+private fun DrawScope.drawParchment(t: Float, edge: Path) {
     drawRect(Brush.verticalGradient(listOf(Color(0xFFD9C08C), Color(0xFFE8D6AC), Color(0xFFE3CC9C), Color(0xFFC9A970))))
     drawRect(
         Brush.horizontalGradient(
@@ -297,7 +322,7 @@ private fun DrawScope.drawParchment(t: Float) {
     // Singed edges: a ragged burnt margin down each side, with embers in it.
     val step = 6.dp.toPx()
     for (side in 0..1) {
-        val edge = Path()
+        edge.reset()
         val x0 = if (side == 0) 0f else size.width
         val inward = if (side == 0) 1f else -1f
         edge.moveTo(x0, 0f)

@@ -164,6 +164,9 @@ class CameraState {
     /** Everything drawn, in world units, so the camera can always zoom out far enough to see it all. */
     var worldBounds = Rect.Zero
 
+    /** When true, camera focus/frame transitions jump directly instead of gliding. */
+    var reducedMotion = false
+
     private val hasSize get() = viewSize.width > 0 && viewSize.height > 0
     /** Whether the camera has been placed yet (the first focus jumps there instead of gliding). */
     var initialized = false
@@ -229,7 +232,7 @@ class CameraState {
 
     private suspend fun moveTo(center: Offset, targetScale: Float) {
         val targetOffset = Offset(viewSize.width / 2f, coveredTop + usableHeight / 2f) - center * targetScale
-        if (!initialized) {
+        if (!initialized || reducedMotion) {
             initialized = true
             scale = targetScale
             offset = targetOffset
@@ -306,6 +309,15 @@ internal fun GameState.timelineArea(l: Int): Rect {
 internal fun GameState.overviewArea(): Rect =
     timelines.keys.map { timelineArea(it) }.reduce(::union).inflate(Layout.SQ * 2)
 
+/** Precomputed per-position square and timeline sets so pan/zoom frames allocate nothing. */
+private class HighlightSets(
+    val turnMoves: List<Move>,
+    val recentSquares: Set<Pos>,
+    val travelSquares: Set<Pos>,
+    val targetSquares: Set<Pos>,
+    val checkedTimelines: Set<Int>,
+)
+
 @Composable
 fun MultiverseView(
     session: GameSession,
@@ -322,13 +334,26 @@ fun MultiverseView(
     val currentSession by rememberUpdatedState(session)
     val currentOnTap by rememberUpdatedState(onTap)
     val currentSlice by rememberUpdatedState(slice)
+    camera.reducedMotion = LocalReducedMotion.current
     val targets = remember(session) { session.targets }
     val threats = remember(session) { session.state.shownThreats() }
+    val highlights = remember(session, targets, threats) {
+        val moves = session.lastTurn + session.state.turnMoves
+        val recent = moves.filter { it.isSpatial }
+            .flatMap { listOf(it.from.copy(t = it.from.t + 1), it.to.copy(t = it.to.t + 1)) }
+            .toSet()
+        val travel = moves.filter { !it.isSpatial }.flatMap { listOf(it.from, it.to) }.toSet()
+        val targetSet = targets.mapTo(HashSet()) { it.to }
+        val checked = threats.mapTo(HashSet()) { it.from.l }
+        HighlightSets(moves, recent, travel, targetSet, checked)
+    }
     val glyphs = remember(textMeasurer, density) { measurePieceGlyphs(textMeasurer, density) }
     // Label colours follow the palette into the Inferno and back.
     val hot = Palette.heat > 0.5f
     val labels = remember(textMeasurer, density, hot) { LabelStyles(density) }
     val rail = remember { TimelineRail() }
+    val scratchA = remember { Path() }
+    val scratchB = remember { Path() }
     camera.worldBounds = remember(session.state) { session.state.overviewArea() }
 
     Canvas(
@@ -373,10 +398,10 @@ fun MultiverseView(
             translate(camera.offset.x, camera.offset.y)
             scale(camera.scale, camera.scale, pivot = Offset.Zero)
         }) {
-            drawMultiverse(session, targets, threats, glyphs, labels, textMeasurer, visible, detailed = Layout.SQ * camera.scale >= 10f, slice)
+            drawMultiverse(session, highlights, threats, glyphs, labels, textMeasurer, visible, detailed = Layout.SQ * camera.scale >= 10f, slice, scratchA, scratchB)
         }
         drawTimelineRail(
-            session.state, threats.mapTo(HashSet()) { it.from.l }, camera, rail, textMeasurer, labels.rail, slice, session.sliceAnchor(),
+            session.state, highlights.checkedTimelines, camera, rail, textMeasurer, labels.rail, slice, session.sliceAnchor(),
         )
     }
 }
@@ -552,7 +577,7 @@ internal fun measurePieceGlyphs(textMeasurer: TextMeasurer, density: Density): M
 
 private fun DrawScope.drawMultiverse(
     session: GameSession,
-    targets: List<Move>,
+    highlights: HighlightSets,
     threats: List<Move>,
     glyphs: Map<PieceType, PieceGlyph>,
     labels: LabelStyles,
@@ -560,6 +585,8 @@ private fun DrawScope.drawMultiverse(
     visible: Rect,
     detailed: Boolean,
     slice: SliceView?,
+    scratchA: Path,
+    scratchB: Path,
 ) {
     val state = session.state
     val anchor = session.sliceAnchor()
@@ -603,7 +630,7 @@ private fun DrawScope.drawMultiverse(
             val color = (if (pass == 0) Palette.slab else if (state.isActive(timeline.index)) Palette.ribbon else Palette.ribbonInactive)
                 .let { if (faded) it.copy(alpha = 0.15f) else it }
             val shift = if (pass == 0) Layout.SLAB else Offset.Zero
-            drawTimelineRibbon(timeline, columns, color, shift, arrow = ongoing, branch = !history)
+            drawTimelineRibbon(timeline, columns, color, shift, arrow = ongoing, branch = !history, scratchA)
         }
     }
 
@@ -613,19 +640,16 @@ private fun DrawScope.drawMultiverse(
     if (ongoing && !history && !state.atTimelineLimit(side) && state.isActive(nextTimeline)) {
         val x = columns.x(state.present) + Layout.BOARD / 2
         if (side == Side.WHITE) {
-            drawBranchArrow(Offset(x, state.timelines.keys.max() * Layout.ROW + Layout.BOARD + Layout.SQ * 1.6f), 1f)
+            drawBranchArrow(Offset(x, state.timelines.keys.max() * Layout.ROW + Layout.BOARD + Layout.SQ * 1.6f), 1f, scratchA)
         } else {
-            drawBranchArrow(Offset(x, state.timelines.keys.min() * Layout.ROW - Layout.SQ * 2.6f), -1f)
+            drawBranchArrow(Offset(x, state.timelines.keys.min() * Layout.ROW - Layout.SQ * 2.6f), -1f, scratchA)
         }
     }
 
-    // Squares highlighted because of the last or current turn.
-    val turnMoves = session.lastTurn + state.turnMoves
-    val recentSquares = turnMoves.filter { it.isSpatial }
-        .flatMap { listOf(it.from.copy(t = it.from.t + 1), it.to.copy(t = it.to.t + 1)) }
-        .toSet()
-    val travelSquares = turnMoves.filter { !it.isSpatial }.flatMap { listOf(it.from, it.to) }.toSet()
-    val targetSquares = targets.map { it.to }.toSet()
+    val turnMoves = highlights.turnMoves
+    val recentSquares = highlights.recentSquares
+    val travelSquares = highlights.travelSquares
+    val targetSquares = highlights.targetSquares
 
     for (timeline in state.timelines.values) {
         val active = state.isActive(timeline.index)
@@ -692,15 +716,15 @@ private fun DrawScope.drawMultiverse(
     for (move in turnMoves) {
         if (!shown(move.from.l, move.from.t) || !shown(move.to.l, move.to.t)) continue
         if (!move.isSpatial) {
-            drawCurvedArrow(Layout.squareCenter(move.from, columns), Layout.squareCenter(move.to, columns), Palette.travelArrow)
+            drawCurvedArrow(Layout.squareCenter(move.from, columns), Layout.squareCenter(move.to, columns), Palette.travelArrow, scratchA, scratchB)
         }
     }
     for (threat in threats) {
         if (slice != null && (!shown(threat.from.l, threat.from.t) || !shown(threat.to.l, threat.to.t))) continue
-        drawCurvedArrow(Layout.squareCenter(threat.from, columns), Layout.squareCenter(threat.to, columns), Palette.threat)
+        drawCurvedArrow(Layout.squareCenter(threat.from, columns), Layout.squareCenter(threat.to, columns), Palette.threat, scratchA, scratchB)
     }
     // A check indicator on each timeline whose advancement lets a king be captured.
-    for (l in threats.mapTo(HashSet()) { it.from.l }) {
+    for (l in highlights.checkedTimelines) {
         val end = state.timelines.getValue(l).end
         if (!shown(l, end)) continue
         val rect = Layout.boardRect(l, end, columns)
@@ -713,21 +737,20 @@ private fun DrawScope.drawMultiverse(
 }
 
 /** A block arrow from [base], pointing down ([direction] 1) or up (-1). */
-private fun DrawScope.drawBranchArrow(base: Offset, direction: Float) {
+private fun DrawScope.drawBranchArrow(base: Offset, direction: Float, path: Path) {
     val shaft = Layout.SQ * 0.65f
     val head = Layout.SQ * 1.5f
     val neck = base.y + direction * Layout.SQ * 1.3f
     val tip = base.y + direction * Layout.SQ * 3f
-    val path = Path().apply {
-        moveTo(base.x - shaft, base.y)
-        lineTo(base.x - shaft, neck)
-        lineTo(base.x - head, neck)
-        lineTo(base.x, tip)
-        lineTo(base.x + head, neck)
-        lineTo(base.x + shaft, neck)
-        lineTo(base.x + shaft, base.y)
-        close()
-    }
+    path.reset()
+    path.moveTo(base.x - shaft, base.y)
+    path.lineTo(base.x - shaft, neck)
+    path.lineTo(base.x - head, neck)
+    path.lineTo(base.x, tip)
+    path.lineTo(base.x + head, neck)
+    path.lineTo(base.x + shaft, neck)
+    path.lineTo(base.x + shaft, base.y)
+    path.close()
     withTransform({ translate(Layout.SLAB.x, Layout.SLAB.y) }) { drawPath(path, Palette.slab) }
     drawPath(path, Palette.ribbon)
 }
@@ -743,6 +766,7 @@ private fun DrawScope.drawTimelineRibbon(
     shift: Offset,
     arrow: Boolean,
     branch: Boolean,
+    scratch: Path,
 ) {
     val l = timeline.index
     val start = timeline.start
@@ -760,23 +784,21 @@ private fun DrawScope.drawTimelineRibbon(
         val shaft = Layout.GAP_X * 0.35f
         val headLength = Layout.GAP_X * 0.55f
         drawRect(color, Offset(right, midY - h / 2), Size(shaft, h))
-        val head = Path().apply {
-            moveTo(right + shaft, midY - h * 0.95f)
-            lineTo(right + shaft + headLength, midY)
-            lineTo(right + shaft, midY + h * 0.95f)
-            close()
-        }
-        drawPath(head, color)
+        scratch.reset()
+        scratch.moveTo(right + shaft, midY - h * 0.95f)
+        scratch.lineTo(right + shaft + headLength, midY)
+        scratch.lineTo(right + shaft, midY + h * 0.95f)
+        scratch.close()
+        drawPath(scratch, color)
     }
 
     if (parent != null) {
         val from = Offset(columns.x(start - 1) + Layout.BOARD * 0.5f, parent * Layout.ROW + Layout.BOARD / 2) + shift
         val to = Offset(columns.x(start) + Layout.BOARD * 0.5f, midY)
-        val path = Path().apply {
-            moveTo(from.x, from.y)
-            cubicTo(from.x + Layout.COL * 0.55f, from.y, to.x - Layout.COL * 0.55f, to.y, to.x, to.y)
-        }
-        drawPath(path, color, style = Stroke(width = h, cap = StrokeCap.Butt))
+        scratch.reset()
+        scratch.moveTo(from.x, from.y)
+        scratch.cubicTo(from.x + Layout.COL * 0.55f, from.y, to.x - Layout.COL * 0.55f, to.y, to.x, to.y)
+        drawPath(scratch, color, style = Stroke(width = h, cap = StrokeCap.Butt))
     }
 }
 
@@ -827,8 +849,8 @@ internal fun DrawScope.drawBoard(
         drawRect(if ((x + y) % 2 == 0) Palette.darkSquare else Palette.lightSquare, square, squareSize)
         highlight(x, y)?.let { drawRect(it, square, squareSize) }
     }
-    for ((square, piece) in board.pieces()) {
-        val center = topLeft + Offset((square.x + 0.5f) * Layout.SQ, (BOARD_SIZE - square.y - 0.5f) * Layout.SQ)
+    board.forEachPiece { x, y, piece ->
+        val center = topLeft + Offset((x + 0.5f) * Layout.SQ, (BOARD_SIZE - y - 0.5f) * Layout.SQ)
         if (detailed) {
             drawPiece(glyphs.getValue(piece.type), piece.side, center)
         } else {
@@ -862,7 +884,7 @@ private fun DrawScope.drawPiece(glyph: PieceGlyph, side: Side, center: Offset) {
 }
 
 /** A gently curved arrow with a pale outline, so it reads over boards and the floor alike. */
-private fun DrawScope.drawCurvedArrow(from: Offset, to: Offset, color: Color) {
+private fun DrawScope.drawCurvedArrow(from: Offset, to: Offset, color: Color, shaft: Path, head: Path) {
     val length = hypot(to.x - from.x, to.y - from.y)
     if (length < 1f) return
     val normal = Offset(-(to.y - from.y) / length, (to.x - from.x) / length)
@@ -872,18 +894,16 @@ private fun DrawScope.drawCurvedArrow(from: Offset, to: Offset, color: Color) {
     val angle = atan2(to.y - control.y, to.x - control.x)
     val direction = Offset(cos(angle), sin(angle))
     val shaftEnd = to - direction * (headLength * 0.8f)
-    val shaft = Path().apply {
-        moveTo(from.x, from.y)
-        quadraticTo(control.x, control.y, shaftEnd.x, shaftEnd.y)
-    }
-    val head = Path().apply {
-        val side = Offset(-direction.y, direction.x) * (headLength * 0.55f)
-        val base = to - direction * headLength
-        moveTo(to.x, to.y)
-        lineTo(base.x + side.x, base.y + side.y)
-        lineTo(base.x - side.x, base.y - side.y)
-        close()
-    }
+    shaft.reset()
+    shaft.moveTo(from.x, from.y)
+    shaft.quadraticTo(control.x, control.y, shaftEnd.x, shaftEnd.y)
+    val side = Offset(-direction.y, direction.x) * (headLength * 0.55f)
+    val base = to - direction * headLength
+    head.reset()
+    head.moveTo(to.x, to.y)
+    head.lineTo(base.x + side.x, base.y + side.y)
+    head.lineTo(base.x - side.x, base.y - side.y)
+    head.close()
     val width = Layout.SQ * 0.16f
     val outline = Color.White.copy(alpha = 0.9f)
     drawPath(shaft, outline, style = Stroke(width = width + Layout.SQ * 0.12f, cap = StrokeCap.Round))

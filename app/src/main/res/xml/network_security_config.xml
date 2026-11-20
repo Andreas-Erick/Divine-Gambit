@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Plain HTTP is allowed so the app can reach a language model served from a computer on the local
-     network (LM Studio and Ollama serve HTTP). Everything the app itself talks to, the relay and
-     Gemini, uses HTTPS. -->
+     network (LM Studio and Ollama serve HTTP on arbitrary LAN IPs). Cloud endpoints the app talks to
+     (the relay, Gemini and Hugging Face) strictly require HTTPS. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">generativelanguage.googleapis.com</domain>
+        <domain includeSubdomains="true">huggingface.co</domain>
+        <domain includeSubdomains="true">workers.dev</domain>
+    </domain-config>
 </network-security-config>

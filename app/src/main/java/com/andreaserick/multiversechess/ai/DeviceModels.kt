@@ -1,12 +1,15 @@
 package com.andreaserick.multiversechess.ai
 
 import android.os.StatFs
+import com.andreaserick.multiversechess.await
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 
@@ -21,7 +24,7 @@ data class DeviceModel(
 ) {
     val url: String get() = "https://huggingface.co/$repository/resolve/main/$file"
     val page: String get() = "https://huggingface.co/$repository"
-    val sizeText: String get() = if (bytes >= 1_000_000_000) "%.1f GB".format(bytes / 1e9) else "${bytes / 1_000_000} MB"
+    val sizeText: String get() = if (bytes >= 1_000_000_000) String.format(Locale.US, "%.1f GB", bytes / 1e9) else "${bytes / 1_000_000} MB"
 }
 
 /** The on-device models on offer (both Apache 2.0), and their download. */
@@ -62,27 +65,33 @@ object DeviceModels {
             throw IOException("Not enough free space: ${model.name} needs ${model.sizeText}.")
         }
         val request = Request.Builder().url(model.url).apply { if (partial.length() > 0) header("Range", "bytes=${partial.length()}-") }.build()
-        aiHttp.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("The download failed (${response.code}).")
-            // A server that ignores the range sends the whole file again.
-            val append = response.code == 206
-            FileOutputStream(partial, append).use { out ->
-                var done = if (append) partial.length() else 0L
-                val buffer = ByteArray(1 shl 16)
-                val input = response.body.byteStream()
-                var lastReport = 0L
-                while (true) {
-                    ensureActive()
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    out.write(buffer, 0, read)
-                    done += read
-                    if (done - lastReport >= REPORT_EVERY) {
-                        progress(done)
-                        lastReport = done
+        val call = aiHttp.newCall(request)
+        val cancelRegistration = coroutineContext.job.invokeOnCompletion { cause -> if (cause != null) call.cancel() }
+        try {
+            call.await().use { response ->
+                if (!response.isSuccessful) throw IOException("The download failed (${response.code}).")
+                // A server that ignores the range sends the whole file again.
+                val append = response.code == 206
+                FileOutputStream(partial, append).use { out ->
+                    var done = if (append) partial.length() else 0L
+                    val buffer = ByteArray(1 shl 16)
+                    val input = response.body.byteStream()
+                    var lastReport = 0L
+                    while (true) {
+                        ensureActive()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        out.write(buffer, 0, read)
+                        done += read
+                        if (done - lastReport >= REPORT_EVERY) {
+                            progress(done)
+                            lastReport = done
+                        }
                     }
                 }
             }
+        } finally {
+            cancelRegistration.dispose()
         }
         progress(null)
         if (partial.length() != model.bytes || sha256(partial) != model.sha256) {
@@ -103,7 +112,7 @@ object DeviceModels {
                 digest.update(buffer, 0, read)
             }
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
+        return digest.digest().toHexString()
     }
 
     private const val FREE_MARGIN = 200_000_000L
