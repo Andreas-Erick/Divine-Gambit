@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,12 +35,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.Puzzle
@@ -65,7 +70,7 @@ fun PuzzleListScreen(
     val solvedCount = puzzles.count { it.id in solved }
     Box(modifier.fillMaxSize().background(Palette.background), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
-            Modifier.widthIn(max = 560.dp).fillMaxSize(),
+            Modifier.widthIn(max = 560.dp).fillMaxSize().imePadding(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -89,7 +94,10 @@ fun PuzzleListScreen(
                             drawStopIndicator = {},
                         )
                         Spacer(Modifier.width(12.dp))
-                        Text("$solvedCount of ${puzzles.size} solved", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            "$solvedCount of ${puzzles.size} solved",
+                            style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = TABULAR_NUMS),
+                        )
                     }
                 }
             }
@@ -143,6 +151,7 @@ private fun GenerateCard(builtInLeft: Int, canGenerate: Boolean, generating: Boo
 @Composable
 private fun AiPuzzleCard(aiName: String?, designing: String?, failed: String?, onDesign: (String?) -> Unit, onAiSettings: () -> Unit) {
     var theme by rememberSaveable { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
     SlabCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Puzzles by AI", style = MaterialTheme.typography.titleMedium)
@@ -168,6 +177,11 @@ private fun AiPuzzleCard(aiName: String?, designing: String?, failed: String?, o
                 placeholder = { Text("e.g. a knight from another timeline") },
                 singleLine = true,
                 enabled = designing == null,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = {
+                    focusManager.clearFocus()
+                    if (designing == null) onDesign(theme.ifBlank { null })
+                }),
                 modifier = Modifier.fillMaxWidth(),
             )
             PrimaryPill(onClick = { onDesign(theme.ifBlank { null }) }, enabled = designing == null, modifier = Modifier.fillMaxWidth()) {

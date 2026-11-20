@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -29,9 +31,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -101,6 +105,7 @@ fun AiSettingsScreen(state: AiSettingsState, onBack: () -> Unit, modifier: Modif
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .heightIn(min = 48.dp)
                     .selectable(settings.provider == provider, role = Role.RadioButton) {
                         state.onChange(settings.copy(provider = provider))
                     }
@@ -175,6 +180,7 @@ private fun GeminiSettings(state: AiSettingsState) {
 @Composable
 private fun ServerSettings(state: AiSettingsState, onListModels: () -> Unit) {
     val settings = state.settings
+    val focusManager = LocalFocusManager.current
     Text(
         "In LM Studio, open Developer, start the server and turn on \"Serve on Local Network\". For Ollama, start it " +
             "with OLLAMA_HOST=0.0.0.0. Then enter the computer's address and port.",
@@ -187,7 +193,8 @@ private fun ServerSettings(state: AiSettingsState, onListModels: () -> Unit) {
         label = { Text("Address") },
         placeholder = { Text("http://192.168.1.20:1234") },
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
         modifier = Modifier.fillMaxWidth(),
     )
     SecretField("API key (if the server needs one)", settings.serverKey) { state.onChange(settings.copy(serverKey = it.trim())) }
@@ -227,7 +234,11 @@ private fun ModelChoice(
                 if (list.isEmpty()) Text("No models found.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 for (model in list.take(12)) {
                     Row(
-                        Modifier.fillMaxWidth().selectable(model == current, role = Role.RadioButton) { onChoose(model) }.padding(vertical = 2.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .selectable(model == current, role = Role.RadioButton) { onChoose(model) }
+                            .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = model == current, onClick = null)
@@ -243,13 +254,15 @@ private fun ModelChoice(
 @Composable
 private fun SecretField(label: String, value: String, onChange: (String) -> Unit) {
     var shown by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },
         singleLine = true,
         visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
         trailingIcon = { TextButton(onClick = { shown = !shown }) { Text(if (shown) "Hide" else "Show") } },
         modifier = Modifier.fillMaxWidth(),
     )
@@ -293,7 +306,11 @@ private fun DeviceSettings(state: AiSettingsState) {
                             color = Palette.accent,
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${progress / 1_000_000} of ${model.bytes / 1_000_000} MB", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                            Text(
+                                "${progress / 1_000_000} of ${model.bytes / 1_000_000} MB",
+                                style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TABULAR_NUMS),
+                                modifier = Modifier.weight(1f),
+                            )
                             TextButton(onClick = { state.onCancelDownload(model) }) { Text("Pause") }
                         }
                     }

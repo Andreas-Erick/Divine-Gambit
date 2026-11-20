@@ -1,13 +1,16 @@
 package com.andreaserick.multiversechess.online
 
+import com.andreaserick.multiversechess.await
 import com.andreaserick.multiversechess.engine.GameMode
 import com.andreaserick.multiversechess.engine.Side
 import com.andreaserick.multiversechess.engine.Variant
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
@@ -71,18 +74,31 @@ data class Ticket(
         /** [text] as a player's name: trimmed, 1 to [MAX_NAME_LENGTH] characters, nothing invisible; or null. */
         fun parseName(text: String): String? = text.trim().takeIf { name ->
             name.codePointCount(0, name.length) in 1..MAX_NAME_LENGTH &&
-                name.codePoints().noneMatch { Character.isISOControl(it) || Character.getType(it) == Character.FORMAT.toInt() }
+                !name.startsWith("\u200D") &&
+                !name.endsWith("\u200D") &&
+                !name.contains("\u200D\u200D") &&
+                name.codePoints().noneMatch { cp ->
+                    Character.isISOControl(cp) ||
+                        (cp != 0x200D && Character.getType(cp).let { t ->
+                            t == Character.FORMAT.toInt() || t == Character.LINE_SEPARATOR.toInt() || t == Character.PARAGRAPH_SEPARATOR.toInt()
+                        })
+                }
         }
 
         fun decode(text: String): Ticket? = runCatching {
             val json = JSONObject(text)
+            val code = parseCode(json.getString("code")) ?: return null
+            val token = json.getString("token").trim()
+            if (token.isEmpty()) return null
+            val limit = if (json.isNull("limit")) null else json.getInt("limit")
+            if (limit != null && limit !in 1..99) return null
             Ticket(
-                code = json.getString("code"),
-                token = json.getString("token"),
+                code = code,
+                token = token,
                 side = Side.valueOf(json.getString("side")),
                 variant = Variant.valueOf(json.getString("variant")),
-                timelineLimit = if (json.isNull("limit")) null else json.getInt("limit"),
-                opponentName = if (json.isNull("opponent")) null else json.getString("opponent"),
+                timelineLimit = limit,
+                opponentName = if (json.isNull("opponent")) null else parseName(json.getString("opponent")),
                 inferno = json.optBoolean("inferno", false),
             )
         }.getOrNull()
@@ -142,6 +158,8 @@ class RelayClient(private val baseUrl: String) {
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         // Keeps the connection alive, and notices soon when it isn't.
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
@@ -235,21 +253,55 @@ class RelayClient(private val baseUrl: String) {
         else -> null
     }
 
-    /** POSTs [body] to [path], or GETs it without one. */
+    /**
+     * POSTs [body] to [path], or GETs it without one. Safe GET requests auto-retry transient
+     * failures with exponential backoff + jitter (honoring Retry-After); POSTs are never retried.
+     */
     private suspend fun request(path: String, body: String?): JSONObject = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url(baseUrl + path)
-            .apply { if (body != null) post(body.toRequestBody("application/json".toMediaType())) }
-            .build()
-        http.newCall(request).execute().use { response ->
-            val json = try {
-                JSONObject(response.body.string())
-            } catch (_: JSONException) {
-                JSONObject()
+        val maxAttempts = if (body == null) 3 else 1
+        var backoffMs = 400L
+        var lastError: IOException? = null
+        for (attempt in 1..maxAttempts) {
+            val request = Request.Builder()
+                .url(baseUrl + path)
+                .apply { if (body != null) post(body.toRequestBody("application/json".toMediaType())) }
+                .build()
+            try {
+                val parsed = http.newCall(request).await().use { response ->
+                    val json = try {
+                        JSONObject(response.body.string())
+                    } catch (_: JSONException) {
+                        JSONObject()
+                    }
+                    if (!response.isSuccessful) {
+                        val code = response.code
+                        if (attempt < maxAttempts && code in TRANSIENT_HTTP_CODES) {
+                            val retryAfterSec = response.header("Retry-After")?.trim()?.toLongOrNull()
+                            val waitMs = retryAfterSec?.times(1_000L)?.coerceIn(200L, 5_000L)
+                                ?: (backoffMs + Random.nextLong(backoffMs / 3 + 1))
+                            backoffMs = (backoffMs * 2).coerceAtMost(3_000L)
+                            delay(waitMs)
+                            return@use null
+                        }
+                        throw RelayException(json.optString("error", "Refused"), code)
+                    }
+                    json
+                }
+                if (parsed != null) return@withContext parsed
+            } catch (e: RelayException) {
+                throw e
+            } catch (e: IOException) {
+                lastError = e
+                if (attempt >= maxAttempts) throw e
+                delay(backoffMs + Random.nextLong(backoffMs / 3 + 1))
+                backoffMs = (backoffMs * 2).coerceAtMost(3_000L)
             }
-            if (!response.isSuccessful) throw RelayException(json.optString("error", "Refused"), response.code)
-            json
         }
+        throw lastError ?: RelayException("Request failed")
+    }
+
+    private companion object {
+        val TRANSIENT_HTTP_CODES = setOf(408, 429, 502, 503, 504)
     }
 
     private fun ticket(json: JSONObject): Ticket = try {

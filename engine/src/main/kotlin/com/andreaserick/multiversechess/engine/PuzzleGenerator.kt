@@ -161,14 +161,27 @@ object PuzzleCodec {
     /** The puzzle in [text], or null if it can't be read. */
     fun decode(text: String): Puzzle? = try {
         val lines = text.lines()
-        require(lines[0] == HEADER)
+        require(lines.firstOrNull() == HEADER) { "Missing header" }
         fun field(name: String) = lines.first { it.startsWith("$name ") }.substringAfter(' ')
-        val solution = field("solution").split(' ').map { pair ->
-            val (from, to) = pair.split('>')
-            parse(from) to parse(to)
+        val id = field("id").trim()
+        val title = field("title").trim()
+        val hint = field("hint").trim()
+        require(id.isNotEmpty() && title.isNotEmpty()) { "Blank id or title" }
+        val solutionText = field("solution").trim()
+        require(solutionText.isNotEmpty()) { "Empty solution" }
+        val solution = solutionText.split(' ').map { pair ->
+            val parts = pair.split('>')
+            require(parts.size == 2) { "Malformed solution move" }
+            SavedGame.decodePos(parts[0]) to SavedGame.decodePos(parts[1])
         }
         val start = SavedGame.decode(lines.drop(5).joinToString("\n"))!!.state
-        Puzzle(field("id"), field("title"), field("hint"), solution) { position(start) }
+        var s = start
+        for ((from, to) in solution) {
+            val legal = s.legalMovesFrom(from).firstOrNull { it.to == to } ?: return null
+            s = s.apply(legal)
+        }
+        if (!s.canSubmit || s.isInCheck(s.sideToMove)) return null
+        Puzzle(id, title, hint, solution) { position(start) }
     } catch (_: RuntimeException) {
         null
     }

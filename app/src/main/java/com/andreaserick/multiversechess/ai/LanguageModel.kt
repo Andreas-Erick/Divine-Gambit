@@ -1,5 +1,6 @@
 package com.andreaserick.multiversechess.ai
 
+import com.andreaserick.multiversechess.await
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -11,10 +12,14 @@ import com.google.ai.edge.litertlm.ThinkingConfig
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -51,23 +56,59 @@ internal val aiHttp: OkHttpClient = OkHttpClient.Builder()
 internal fun withoutThinking(text: String): String =
     text.replace(Regex("""<think>[\s\S]*?</think>""", RegexOption.IGNORE_CASE), "").trim()
 
-private suspend fun send(request: Request, describe: (Int, JSONObject?) -> String): JSONObject = withContext(Dispatchers.IO) {
-    try {
-        aiHttp.newCall(request).execute().use { response ->
-            val body = response.body.string()
-            val parsed = try {
-                JSONObject(body)
-            } catch (_: JSONException) {
-                null
-            }
-            if (!response.isSuccessful) throw AiException(describe(response.code, parsed))
-            parsed ?: throw AiException("The model's answer couldn't be read.")
-        }
-    } catch (e: AiException) {
-        throw e
-    } catch (e: IOException) {
-        throw AiException("Couldn't reach the model: ${e.message ?: "no connection"}.", e)
+private val TRANSIENT_HTTP_CODES = setOf(408, 429, 502, 503, 504)
+private val VALID_MODEL_ID = Regex("""^[A-Za-z0-9._:-]{1,128}$""")
+
+private fun buildRequest(url: String, configure: Request.Builder.() -> Unit): Request {
+    val parsed = url.toHttpUrlOrNull()
+        ?: throw AiException("That server address isn't valid (for example, http://192.168.1.20:1234).")
+    return try {
+        Request.Builder().url(parsed).apply(configure).build()
+    } catch (_: IllegalArgumentException) {
+        throw AiException("The server address or API key contains invalid characters.")
     }
+}
+
+private suspend fun send(makeRequest: () -> Request, describe: (Int, JSONObject?) -> String): JSONObject = withContext(Dispatchers.IO) {
+    val request = makeRequest()
+    val maxAttempts = if (request.method == "GET") 3 else 1
+    var backoffMs = 500L
+    var lastException: AiException? = null
+    for (attempt in 1..maxAttempts) {
+        try {
+            val result = aiHttp.newCall(request).await().use { response ->
+                val body = response.body.string()
+                val parsed = try {
+                    JSONObject(body)
+                } catch (_: JSONException) {
+                    null
+                }
+                if (!response.isSuccessful) {
+                    val code = response.code
+                    if (attempt < maxAttempts && code in TRANSIENT_HTTP_CODES) {
+                        val retryAfterSec = response.header("Retry-After")?.trim()?.toLongOrNull()
+                        val waitMs = retryAfterSec?.times(1_000L)?.coerceIn(250L, 5_000L)
+                            ?: (backoffMs + Random.nextLong(backoffMs / 3 + 1))
+                        backoffMs = (backoffMs * 2).coerceAtMost(4_000L)
+                        delay(waitMs)
+                        return@use null
+                    }
+                    throw AiException(describe(code, parsed))
+                }
+                parsed ?: throw AiException("The model's answer couldn't be read.")
+            }
+            if (result != null) return@withContext result
+        } catch (e: AiException) {
+            throw e
+        } catch (e: IOException) {
+            lastException = AiException("Couldn't reach the model: ${e.message ?: "no connection"}.", e)
+            if (attempt < maxAttempts) {
+                delay(backoffMs + Random.nextLong(backoffMs / 3 + 1))
+                backoffMs = (backoffMs * 2).coerceAtMost(4_000L)
+            }
+        }
+    }
+    throw lastException ?: AiException("Couldn't reach the model.")
 }
 
 /** Google's Gemini models, through the Gemini API with the player's API key. */
@@ -75,6 +116,10 @@ class GeminiModel(private val apiKey: String, private val model: String) : Langu
     override val name: String get() = "Gemini"
 
     override suspend fun chat(system: String, messages: List<ChatMessage>): String {
+        if (!VALID_MODEL_ID.matches(model)) throw AiException("Invalid Gemini model name.")
+        // Validate endpoint and API key header before serializing prompt JSON.
+        val endpoint = "$BASE/models/$model:generateContent"
+        buildRequest(endpoint) { header("x-goog-api-key", apiKey) }
         val contents = JSONArray()
         for (message in messages) {
             contents.put(JSONObject().put("role", if (message.fromModel) "model" else "user")
@@ -84,12 +129,15 @@ class GeminiModel(private val apiKey: String, private val model: String) : Langu
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
             .put("contents", contents)
             .put("generationConfig", JSONObject().put("temperature", 0.8))
-        val request = Request.Builder()
-            .url("$BASE/models/$model:generateContent")
-            .header("x-goog-api-key", apiKey)
-            .post(body.toString().toRequestBody(json))
-            .build()
-        val reply = send(request, ::describeError)
+        val reply = send(
+            makeRequest = {
+                buildRequest(endpoint) {
+                    header("x-goog-api-key", apiKey)
+                    post(body.toString().toRequestBody(json))
+                }
+            },
+            describe = ::describeError,
+        )
         val parts = reply.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
             ?: throw AiException("Gemini didn't answer" + (reply.optJSONObject("promptFeedback")?.optString("blockReason")?.let { " ($it)" } ?: "") + ".")
         // Thinking models send their thoughts as parts of their own.
@@ -103,8 +151,10 @@ class GeminiModel(private val apiKey: String, private val model: String) : Langu
 
         /** The Gemini models [apiKey] can use to write text, newest first. */
         suspend fun models(apiKey: String): List<String> {
-            val request = Request.Builder().url("$BASE/models?pageSize=200").header("x-goog-api-key", apiKey).get().build()
-            val list = send(request, ::describeError).optJSONArray("models") ?: JSONArray()
+            val list = send(
+                makeRequest = { buildRequest("$BASE/models?pageSize=200") { header("x-goog-api-key", apiKey); get() } },
+                describe = ::describeError,
+            ).optJSONArray("models") ?: JSONArray()
             return (0 until list.length()).map { list.getJSONObject(it) }
                 .filter { model ->
                     val methods = model.optJSONArray("supportedGenerationMethods")
@@ -143,11 +193,16 @@ class ServerModel(baseUrl: String, private val model: String, private val apiKey
     override val name: String get() = shortName(model)
 
     override suspend fun chat(system: String, messages: List<ChatMessage>): String {
+        val endpoint = "$api/chat/completions"
+        // Validate URL and authorization header before serializing prompt JSON.
+        buildRequest(endpoint) { authorized(apiKey) }
         val list = JSONArray().put(JSONObject().put("role", "system").put("content", system))
         for (message in messages) list.put(JSONObject().put("role", if (message.fromModel) "assistant" else "user").put("content", message.text))
         val body = JSONObject().put("model", model).put("messages", list).put("temperature", 0.8).put("stream", false)
-        val request = Request.Builder().url("$api/chat/completions").authorized(apiKey).post(body.toString().toRequestBody(json)).build()
-        val reply = send(request, ::describeError)
+        val reply = send(
+            makeRequest = { buildRequest(endpoint) { authorized(apiKey); post(body.toString().toRequestBody(json)) } },
+            describe = ::describeError,
+        )
         val text = reply.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optString("content")
         return withoutThinking(text.orEmpty()).ifBlank { throw AiException("The model's answer was empty.") }
     }
@@ -155,8 +210,10 @@ class ServerModel(baseUrl: String, private val model: String, private val apiKey
     companion object {
         /** The models the server at [baseUrl] offers. */
         suspend fun models(baseUrl: String, apiKey: String?): List<String> {
-            val request = Request.Builder().url("${apiBase(baseUrl)}/models").authorized(apiKey).get().build()
-            val data = send(request, ::describeError).optJSONArray("data") ?: JSONArray()
+            val data = send(
+                makeRequest = { buildRequest("${apiBase(baseUrl)}/models") { authorized(apiKey); get() } },
+                describe = ::describeError,
+            ).optJSONArray("data") ?: JSONArray()
             return (0 until data.length()).map { data.getJSONObject(it).getString("id") }.filter { !it.contains("embed") }
         }
 
@@ -219,6 +276,8 @@ class OnDeviceModel(
                     val text = reply.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
                     withoutThinking(text).ifBlank { throw AiException("The model's answer was empty.") }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: AiException) {
                 throw e
             } catch (e: Exception) {
@@ -267,6 +326,17 @@ class OnDeviceModel(
         suspend fun release() = lock.withLock {
             loaded?.second?.close()
             loaded = null
+        }
+
+        /** Non-suspending best-effort cleanup when the owning ViewModel is cleared. */
+        fun closeIdle() {
+            if (!lock.tryLock()) return
+            try {
+                loaded?.second?.close()
+                loaded = null
+            } finally {
+                lock.unlock()
+            }
         }
     }
 }

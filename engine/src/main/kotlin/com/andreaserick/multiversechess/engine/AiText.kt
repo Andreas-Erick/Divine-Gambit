@@ -49,7 +49,7 @@ object AiText {
      * with it, or null if the reply doesn't name one.
      */
     fun parseChoice(reply: String, count: Int): Pair<Int, String?>? {
-        val number = Regex("""\d+""").find(reply)?.value?.toIntOrNull() ?: return null
+        val number = Regex("""(?<![-\d])\d+""").find(reply)?.value?.toIntOrNull() ?: return null
         if (number !in 1..count) return null
         val remark = clean(reply.lines().drop(1).joinToString(" ").ifBlank { reply.substringAfter(number.toString()) })
             .trimStart(' ', '.', ':', ')', '-', '—')
@@ -86,10 +86,18 @@ object AiText {
      */
     internal fun shorten(text: String): String {
         if (text.length <= MAX_REMARK) return text
-        val head = text.take(MAX_REMARK)
+        val head = takeUtf16Safe(text, MAX_REMARK)
         val sentence = Regex("""[.!?](?=\s)""").findAll(head).lastOrNull()
         if (sentence != null && sentence.range.first >= MAX_REMARK / 3) return head.take(sentence.range.first + 1)
-        return head.take(MAX_REMARK - 1).substringBeforeLast(' ').trimEnd(',', ';', ':', ' ') + "…"
+        val body = takeUtf16Safe(head, MAX_REMARK - 1)
+        val cut = if (' ' in body) body.substringBeforeLast(' ') else body
+        return cut.trimEnd(',', ';', ':', ' ') + "…"
+    }
+
+    internal fun takeUtf16Safe(text: String, maxChars: Int): String {
+        if (text.length <= maxChars) return text
+        val slice = text.take(maxChars)
+        return if (slice.isNotEmpty() && slice.last().isHighSurrogate()) slice.dropLast(1) else slice
     }
 
     /**
@@ -192,8 +200,8 @@ e1e8"""
 
     /** The TITLE and HINT lines of [reply], cleaned up, if it has both. */
     fun parseTitleAndHint(reply: String): Pair<String, String>? {
-        val title = field(reply, "TITLE")?.take(MAX_TITLE) ?: return null
-        val hint = field(reply, "HINT")?.take(MAX_HINT) ?: return null
+        val title = field(reply, "TITLE")?.let { takeUtf16Safe(it, MAX_TITLE) } ?: return null
+        val hint = field(reply, "HINT")?.let { takeUtf16Safe(it, MAX_HINT) } ?: return null
         return title to hint
     }
 
@@ -256,8 +264,8 @@ object PuzzleDrafts {
         }
 
         PuzzleDraft(
-            title = section("TITLE")?.firstOrNull()?.take(AiText.MAX_TITLE) ?: "",
-            hint = section("HINT")?.joinToString(" ")?.take(AiText.MAX_HINT) ?: "",
+            title = section("TITLE")?.firstOrNull()?.let { AiText.takeUtf16Safe(it, AiText.MAX_TITLE) } ?: "",
+            hint = section("HINT")?.joinToString(" ")?.let { AiText.takeUtf16Safe(it, AiText.MAX_HINT) } ?: "",
             board = board,
             history = section("HISTORY").orEmpty().filter { !it.trim('.', ' ').equals("none", ignoreCase = true) },
             solution = required("SOLUTION").joinToString(", ").takeIf { it.isNotBlank() },
@@ -408,16 +416,22 @@ object PuzzleDrafts {
      * that kind (a pawn without a letter) to that square on its own board.
      */
     private fun short(state: GameState, text: String, match: MatchResult): Played {
-        val timeline = match.groupValues[1].ifEmpty { null }?.toInt()
+        val timelineText = match.groupValues[1]
+        val timeline = if (timelineText.isEmpty()) null else timelineText.toIntOrNull()?.takeIf { it in -99..99 }
+            ?: return Played.Wrong("'$text': timeline L$timelineText is out of range.")
         val type = match.groupValues[2].ifEmpty { "P" }[0]
         val square = match.groupValues[3]
         val moves = state.timelines.values
             .filter { (timeline == null || it.index == timeline) && state.isPlayable(it.index, it.end) }
             .flatMap { line ->
                 val target = Pos.of(line.index, line.end, square)
-                line.last.pieces()
-                    .filter { (_, piece) -> piece.side == state.sideToMove && piece.type.letter == type }
-                    .flatMap { (from, _) -> state.legalMovesFrom(Pos(line.index, line.end, from.x, from.y)).filter { it.to == target } }
+                buildList {
+                    line.last.forEachPiece { x, y, piece ->
+                        if (piece.side == state.sideToMove && piece.type.letter == type) {
+                            addAll(state.legalMovesFrom(Pos(line.index, line.end, x, y)).filter { it.to == target })
+                        }
+                    }
+                }
             }
         return when (moves.size) {
             1 -> Played.Ok(state.apply(moves[0]), moves[0])
@@ -430,13 +444,20 @@ object PuzzleDrafts {
     private fun play(state: GameState, text: String): Played {
         val mover = state.sideToMove
         val (from, to) = SPATIAL.find(text)?.let { m ->
-            val l = m.groupValues[1].ifEmpty { "0" }.toInt()
+            val l = m.groupValues[1].ifEmpty { "0" }.toIntOrNull()?.takeIf { it in -99..99 }
+                ?: return Played.Wrong("'$text': timeline L${m.groupValues[1]} is out of range.")
             val timeline = state.timelines[l] ?: return Played.Wrong("'$text': there's no timeline L${Notation.timelineLabel(l)}.")
             Pos.of(l, timeline.end, m.groupValues[2].lowercase()) to Pos.of(l, timeline.end, m.groupValues[3].lowercase())
         } ?: BETWEEN.find(text)?.let { m ->
-            fun board(l: String, turn: String) = l.toInt() to (turn.toInt() - 1) * 2 + if (mover == Side.BLACK) 1 else 0
+            fun board(lText: String, turnText: String): Pair<Int, Int>? {
+                val l = lText.toIntOrNull()?.takeIf { it in -99..99 } ?: return null
+                val turn = turnText.toIntOrNull()?.takeIf { it in 1..999 } ?: return null
+                return l to (turn - 1) * 2 + if (mover == Side.BLACK) 1 else 0
+            }
             val (fl, ft) = board(m.groupValues[1], m.groupValues[2])
+                ?: return Played.Wrong("'$text': board L${m.groupValues[1]} T${m.groupValues[2]} is out of range.")
             val (tl, tt) = board(m.groupValues[4], m.groupValues[5])
+                ?: return Played.Wrong("'$text': board L${m.groupValues[4]} T${m.groupValues[5]} is out of range.")
             Pos.of(fl, ft, m.groupValues[3].lowercase()) to Pos.of(tl, tt, m.groupValues[6].lowercase())
         } ?: return SHORT.find(text)?.let { short(state, text, it) }
             ?: Played.Wrong("'$text' isn't a move in the expected format (\"e2e4\", \"L+1 e2e4\" or \"L0 T3 c3 > L0 T2 c3\").")

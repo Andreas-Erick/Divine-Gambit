@@ -71,6 +71,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,6 +87,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.hypot
+import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -128,13 +130,21 @@ fun InfernoScreen(
     val camera = remember { CameraState() }
     var showHint by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
+    val reducedMotion = LocalReducedMotion.current
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
     val comfortableSquare = with(LocalDensity.current) { COMFORTABLE_SQUARE.toPx() }
-    // Seconds, for the fire and smoke; only read while drawing, so only drawing follows it.
+    // Seconds, for the fire and smoke; only read while drawing, paused when occluded or reduced-motion.
     val time = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(active) {
-        if (!active) return@LaunchedEffect
-        val start = withFrameNanos { it } - (time.floatValue * 1e9f).toLong()
-        while (true) withFrameNanos { time.floatValue = (it - start) / 1e9f }
+    LaunchedEffect(active, reducedMotion, windowFocused) {
+        if (!active || reducedMotion || !windowFocused) return@LaunchedEffect
+        var lastNanos = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { nanos ->
+                val dt = min((nanos - lastNanos) / 1e9f, 0.1f).coerceAtLeast(0f)
+                lastNanos = nanos
+                time.floatValue += dt
+            }
+        }
     }
 
     // Frame each new trial, and again whenever it starts over.
@@ -323,7 +333,8 @@ fun InfernoScreen(
 @Composable
 private fun HellClock(seconds: Int, running: Boolean, opponent: String) {
     val low = running && seconds <= 15
-    val pulse = if (!low) 1f else rememberInfiniteTransition(label = "clock").animateFloat(
+    val reducedMotion = LocalReducedMotion.current
+    val pulse = if (!low || reducedMotion) 1f else rememberInfiniteTransition(label = "clock").animateFloat(
         initialValue = 1f,
         targetValue = 0.45f,
         animationSpec = infiniteRepeatable(tween(500), RepeatMode.Reverse),
@@ -336,8 +347,8 @@ private fun HellClock(seconds: Int, running: Boolean, opponent: String) {
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                if (running) "%d:%02d".format(seconds / 60, seconds % 60) else "Paused",
-                style = MaterialTheme.typography.titleMedium,
+                if (running) String.format(java.util.Locale.US, "%d:%02d", seconds / 60, seconds % 60) else "Paused",
+                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = TABULAR_NUMS),
                 color = if (low) Palette.threat else Palette.ink,
             )
             Text(
@@ -403,9 +414,11 @@ internal fun flicker(t: Float, seed: Float = 0f): Float =
  */
 @Composable
 private fun InfernoDepths(time: () -> Float, pan: () -> Offset, modifier: Modifier = Modifier) {
+    val edgePath = remember { Path() }
+    val rockPath = remember { Path() }
     Box(modifier) {
         Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawAbyss(time(), pan()) }
-        Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawRidges(pan()) }
+        Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawRidges(pan(), edgePath, rockPath) }
         Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawSmoke(time(), pan()) }
     }
 }
@@ -451,7 +464,7 @@ private fun DrawScope.drawAbyss(t: Float, pan: Offset) {
  * Ridges of rock, one behind another: the farther, the redder and hazier, the less they move as
  * the view pans, and the brighter the glow along their edges.
  */
-private fun DrawScope.drawRidges(pan: Offset) {
+private fun DrawScope.drawRidges(pan: Offset, edge: Path, rock: Path) {
     val w = size.width
     val h = size.height
     val horizon = horizon(pan)
@@ -462,8 +475,9 @@ private fun DrawScope.drawRidges(pan: Offset) {
         val amplitude = h * (0.05f + 0.035f * i)
         val wavelength = w * (0.22f + 0.14f * i)
         val step = 10f * density
-        val edge = Path()
-        val rock = Path().apply { moveTo(0f, h) }
+        edge.reset()
+        rock.reset()
+        rock.moveTo(0f, h)
         var x = 0f
         while (x <= w + step) {
             val y = base - amplitude * ridge((x - pan.x * parallax) / wavelength, i * 3.7f)
@@ -535,6 +549,7 @@ private fun InfernoAtmosphere(time: () -> Float, modifier: Modifier = Modifier) 
     val sparks = remember { Random(7).let { r -> List(40) { Spark(r.nextFloat(), 0.25f + r.nextFloat() * 0.75f, r.nextFloat(), 1f + r.nextFloat() * 2.4f) } } }
     val ash = remember { Random(11).let { r -> List(26) { Spark(r.nextFloat(), 0.3f + r.nextFloat() * 0.7f, r.nextFloat(), 0.8f + r.nextFloat() * 1.6f) } } }
     val tongues = remember { Random(3).let { r -> List(9) { r.nextFloat() } } }
+    val tongue = remember { Path() }
     Canvas(
         modifier.graphicsLayer {
             alpha = 0.75f + 0.25f * sin(time() * 0.9f)
@@ -573,12 +588,11 @@ private fun InfernoAtmosphere(time: () -> Float, modifier: Modifier = Modifier) 
             val height = 215.dp.toPx() * (0.65f + 0.35f * seed) * flicker(t, seed * 40f)
             val tip = Offset(x + sin(t * 2.3f + seed * 12f) * 18.dp.toPx(), size.height - height)
             val half = step * 0.8f
-            val tongue = Path().apply {
-                moveTo(x - half, size.height)
-                cubicTo(x - half * 0.6f, size.height - height * 0.5f, tip.x - half * 0.2f, tip.y + height * 0.3f, tip.x, tip.y)
-                cubicTo(tip.x + half * 0.2f, tip.y + height * 0.3f, x + half * 0.6f, size.height - height * 0.5f, x + half, size.height)
-                close()
-            }
+            tongue.reset()
+            tongue.moveTo(x - half, size.height)
+            tongue.cubicTo(x - half * 0.6f, size.height - height * 0.5f, tip.x - half * 0.2f, tip.y + height * 0.3f, tip.x, tip.y)
+            tongue.cubicTo(tip.x + half * 0.2f, tip.y + height * 0.3f, x + half * 0.6f, size.height - height * 0.5f, x + half, size.height)
+            tongue.close()
             drawPath(
                 tongue,
                 Brush.verticalGradient(
@@ -623,56 +637,66 @@ private val FIRE_LAYERS = listOf(
  * returns. Its edge is ragged, crawling fire that throws off sparks; [time] (in seconds) moves it,
  * and the screen flashes as the fire takes it over.
  */
-internal fun Modifier.portal(progress: () -> Float, origin: () -> Offset?, time: () -> Float): Modifier = drawWithContent {
-    val p = progress()
-    if (p >= 1f) {
-        drawContent()
-        return@drawWithContent
-    }
-    if (p <= 0f) return@drawWithContent
-    val t = time()
-    val c = origin() ?: Offset(size.width / 2f, size.height * 0.8f)
-    val far = maxOf(
-        hypot(c.x, c.y),
-        hypot(size.width - c.x, c.y),
-        hypot(c.x, size.height - c.y),
-        hypot(size.width - c.x, size.height - c.y),
-    )
-    val rim = 44.dp.toPx()
-    val r = (far + rim * 2.5f) * p
-    clipPath(Path().apply { addOval(Rect(c, r)) }) { this@drawWithContent.drawContent() }
+internal fun Modifier.portal(progress: () -> Float, origin: () -> Offset?, time: () -> Float): Modifier {
+    val clipScratch = Path()
+    val ringScratch = Path()
+    return drawWithContent {
+        val p = progress()
+        if (p >= 1f) {
+            drawContent()
+            return@drawWithContent
+        }
+        if (p <= 0f) return@drawWithContent
+        val t = time()
+        val c = origin() ?: Offset(size.width / 2f, size.height * 0.8f)
+        val far = maxOf(
+            hypot(c.x, c.y),
+            hypot(size.width - c.x, c.y),
+            hypot(c.x, size.height - c.y),
+            hypot(size.width - c.x, size.height - c.y),
+        )
+        val rim = 44.dp.toPx()
+        val r = (far + rim * 2.5f) * p
+        clipScratch.reset()
+        clipScratch.addOval(Rect(c, r))
+        clipPath(clipScratch) { this@drawWithContent.drawContent() }
 
-    // A glow around the hole, then the flames: dark red outermost, through orange, to white-hot.
-    val outer = r + rim * 3f
-    drawCircle(
-        Brush.radialGradient(
-            0f to Color.Transparent,
-            ((r - rim) / outer).coerceAtLeast(0f) to Color.Transparent,
-            (r / outer) to Palette.flame.copy(alpha = 0.9f),
-            ((r + rim) / outer) to Palette.ember.copy(alpha = 0.5f),
-            1f to Color.Transparent,
-            center = c,
+        // A glow around the hole, then the flames: dark red outermost, through orange, to white-hot.
+        val outer = r + rim * 3f
+        drawCircle(
+            Brush.radialGradient(
+                0f to Color.Transparent,
+                ((r - rim) / outer).coerceAtLeast(0f) to Color.Transparent,
+                (r / outer) to Palette.flame.copy(alpha = 0.9f),
+                ((r + rim) / outer) to Palette.ember.copy(alpha = 0.5f),
+                1f to Color.Transparent,
+                center = c,
+                radius = outer,
+            ),
             radius = outer,
-        ),
-        radius = outer,
-        center = c,
-    )
-    val grow = (r / (rim * 2f)).coerceAtMost(1f)
-    for ((reach, color, seed) in FIRE_LAYERS) drawPath(flameRing(c, r, rim * reach * grow, t, seed), color)
-    // Sparks thrown off the rim.
-    for (i in 0 until 28) {
-        val angle = i * 2f * PI.toFloat() / 28 + sin(i * 1.3f)
-        val life = (t * 1.6f + i * 0.37f) % 1f
-        val distance = r + rim * (0.4f + 3f * life)
-        val at = c + Offset(cos(angle) * distance, sin(angle) * distance - life * rim)
-        drawCircle(Palette.flame.copy(alpha = (1f - life) * 0.9f), (0.8f + 2.6f * (1f - life)).dp.toPx(), at)
+            center = c,
+        )
+        val grow = (r / (rim * 2f)).coerceAtMost(1f)
+        for ((reach, color, seed) in FIRE_LAYERS) {
+            fillFlameRing(ringScratch, c, r, rim * reach * grow, t, seed)
+            drawPath(ringScratch, color)
+        }
+        // Sparks thrown off the rim.
+        for (i in 0 until 28) {
+            val angle = i * 2f * PI.toFloat() / 28 + sin(i * 1.3f)
+            val life = (t * 1.6f + i * 0.37f) % 1f
+            val distance = r + rim * (0.4f + 3f * life)
+            val at = c + Offset(cos(angle) * distance, sin(angle) * distance - life * rim)
+            drawCircle(Palette.flame.copy(alpha = (1f - life) * 0.9f), (0.8f + 2.6f * (1f - life)).dp.toPx(), at)
+        }
+        if (p > 0.85f) drawRect(Color(0xFFFF7A2E), alpha = 0.16f * sin(PI.toFloat() * (p - 0.85f) / 0.15f))
     }
-    if (p > 0.85f) drawRect(Color(0xFFFF7A2E), alpha = 0.16f * sin(PI.toFloat() * (p - 0.85f) / 0.15f))
 }
 
-/** A ring from radius [r] out to ragged tongues up to [reach] beyond it, which flicker and crawl round. */
-private fun flameRing(c: Offset, r: Float, reach: Float, t: Float, seed: Float): Path = Path().apply {
-    fillType = PathFillType.EvenOdd
+/** Populates [target] with a ring from radius [r] out to ragged tongues up to [reach] beyond it. */
+private fun fillFlameRing(target: Path, c: Offset, r: Float, reach: Float, t: Float, seed: Float) {
+    target.reset()
+    target.fillType = PathFillType.EvenOdd
     val points = 140
     for (i in 0..points) {
         val a = 2f * PI.toFloat() * i / points
@@ -680,10 +704,10 @@ private fun flameRing(c: Offset, r: Float, reach: Float, t: Float, seed: Float):
         val radius = r + reach * k.coerceAtLeast(0.04f)
         val x = c.x + cos(a) * radius
         val y = c.y + sin(a) * radius
-        if (i == 0) moveTo(x, y) else lineTo(x, y)
+        if (i == 0) target.moveTo(x, y) else target.lineTo(x, y)
     }
-    close()
-    addOval(Rect(c, (r - 1f).coerceAtLeast(0f)))
+    target.close()
+    target.addOval(Rect(c, (r - 1f).coerceAtLeast(0f)))
 }
 
 /** A flame, for the Inferno. Drawn here since only the core icon set is bundled. */

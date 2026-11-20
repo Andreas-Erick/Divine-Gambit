@@ -1,18 +1,22 @@
 package com.andreaserick.multiversechess.ui
 
+import android.provider.Settings
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -171,11 +175,25 @@ private val shapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp),
 )
 
+/** True when the user has turned off system animations ("Remove animations" in Accessibility). */
+val LocalReducedMotion = staticCompositionLocalOf { false }
+
+/** OpenType tabular numerals so live clocks, counters and indices never horizontally jitter. */
+internal const val TABULAR_NUMS = "tnum"
+
 @Composable
 fun MultiverseChessTheme(content: @Composable () -> Unit) {
     // Material's colours change once, halfway into the Inferno or out, rather than on every frame
     // of the passage; the board and the Inferno follow the Palette as it blends.
+    val context = LocalContext.current
+    val reducedMotion = remember(context) {
+        runCatching {
+            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+        }.getOrDefault(false)
+    }
     val hot by remember { derivedStateOf { Palette.heat >= 0.5f } }
     val scheme = remember(hot) { colors(if (hot) 1f else 0f) }
-    MaterialTheme(colorScheme = scheme, typography = Typography().serif(), shapes = shapes, content = content)
+    CompositionLocalProvider(LocalReducedMotion provides reducedMotion) {
+        MaterialTheme(colorScheme = scheme, typography = Typography().serif(), shapes = shapes, content = content)
+    }
 }

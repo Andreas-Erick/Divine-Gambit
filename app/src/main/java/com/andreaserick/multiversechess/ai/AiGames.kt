@@ -11,6 +11,9 @@ import com.andreaserick.multiversechess.engine.PuzzleDrafts
 import com.andreaserick.multiversechess.engine.PuzzleGenerator
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -58,7 +61,8 @@ object AiGames {
             }
         } catch (e: AiException) {
             AiTurn(choices[0].moves, null, "${e.message} The engine played instead.")
-        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+        } catch (_: TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
             AiTurn(choices[0].moves, null, "${model.name} took too long to answer, so the engine played instead.")
         }
     }
@@ -74,7 +78,13 @@ object AiGames {
         var lastProblem: String? = null
         for (attempt in 1..DESIGN_ATTEMPTS) {
             progress(if (attempt == 1) "${model.name} is designing a puzzle…" else "${model.name} is fixing its puzzle (attempt $attempt of $DESIGN_ATTEMPTS)…")
-            val reply = model.chat(AiText.DESIGNER_SYSTEM, messages)
+            val reply = try {
+                withTimeout(TURN_TIMEOUT_MILLIS) { model.chat(AiText.DESIGNER_SYSTEM, messages) }
+            } catch (_: TimeoutCancellationException) {
+                currentCoroutineContext().ensureActive()
+                lastProblem = "took too long to answer."
+                break
+            }
             progress("Checking ${model.name}'s puzzle…")
             val check = withContext(Dispatchers.Default) {
                 val job = coroutineContext.job
@@ -97,8 +107,13 @@ object AiGames {
         } ?: throw AiException("No puzzle could be made this time. Please try again.")
         progress("${model.name} is naming the puzzle…")
         val named = try {
-            AiText.parseTitleAndHint(model.chat(AiText.PRESENTER_SYSTEM, listOf(ChatMessage(false, AiText.presentPrompt(generated)))))
+            withTimeout(TURN_TIMEOUT_MILLIS) {
+                AiText.parseTitleAndHint(model.chat(AiText.PRESENTER_SYSTEM, listOf(ChatMessage(false, AiText.presentPrompt(generated)))))
+            }
         } catch (_: AiException) {
+            null
+        } catch (_: TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
             null
         }
         val start = generated.start()

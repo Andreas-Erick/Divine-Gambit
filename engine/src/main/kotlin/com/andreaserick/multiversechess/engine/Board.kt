@@ -33,19 +33,22 @@ class Board private constructor(
 
     /** Whether a piece of side [by] attacks [target] with an ordinary (same-board) move. */
     fun isAttackedSpatially(target: Square, by: Side): Boolean {
-        for ((from, piece) in pieces()) {
+        for (i in cells.indices) {
+            val piece = cells[i] ?: continue
             if (piece.side != by) continue
-            val dx = target.x - from.x
-            val dy = target.y - from.y
+            val fx = i % BOARD_SIZE
+            val fy = i / BOARD_SIZE
+            val dx = target.x - fx
+            val dy = target.y - fy
             if (dx == 0 && dy == 0) continue
             val attacks = when (piece.type) {
                 PieceType.PAWN, PieceType.BRAWN -> dy == by.rankForward && abs(dx) == 1
                 PieceType.KNIGHT -> (abs(dx) == 1 && abs(dy) == 2) || (abs(dx) == 2 && abs(dy) == 1)
                 PieceType.KING, PieceType.COMMON_KING -> abs(dx) <= 1 && abs(dy) <= 1
-                PieceType.ROOK -> (dx == 0 || dy == 0) && pathClear(from, dx, dy)
-                PieceType.BISHOP -> abs(dx) == abs(dy) && pathClear(from, dx, dy)
+                PieceType.ROOK -> (dx == 0 || dy == 0) && pathClear(fx, fy, dx, dy)
+                PieceType.BISHOP -> abs(dx) == abs(dy) && pathClear(fx, fy, dx, dy)
                 PieceType.QUEEN, PieceType.PRINCESS, PieceType.ROYAL_QUEEN ->
-                    (dx == 0 || dy == 0 || abs(dx) == abs(dy)) && pathClear(from, dx, dy)
+                    (dx == 0 || dy == 0 || abs(dx) == abs(dy)) && pathClear(fx, fy, dx, dy)
                 // They always change time or timeline, so they never attack their own board.
                 PieceType.UNICORN, PieceType.DRAGON -> false
             }
@@ -54,12 +57,12 @@ class Board private constructor(
         return false
     }
 
-    private fun pathClear(from: Square, dx: Int, dy: Int): Boolean {
+    private fun pathClear(fromX: Int, fromY: Int, dx: Int, dy: Int): Boolean {
         val sx = dx.sign
         val sy = dy.sign
         val steps = maxOf(abs(dx), abs(dy))
         for (k in 1 until steps) {
-            if (get(from.x + sx * k, from.y + sy * k) != null) return false
+            if (get(fromX + sx * k, fromY + sy * k) != null) return false
         }
         return true
     }

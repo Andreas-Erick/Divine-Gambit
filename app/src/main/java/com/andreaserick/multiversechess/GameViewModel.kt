@@ -2,7 +2,6 @@ package com.andreaserick.multiversechess
 
 import android.app.Application
 import android.content.Context
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +46,8 @@ import com.andreaserick.multiversechess.online.Ticket
 import com.andreaserick.multiversechess.ui.SoulView
 import java.io.File
 import java.io.IOException
+import java.util.Locale
+import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -70,8 +71,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("progress", Context.MODE_PRIVATE)
 
     /** Ids of puzzles solved without looking at the solution. */
-    var solvedPuzzles by mutableStateOf(prefs.getStringSet(KEY_SOLVED, emptySet())!!.toSet())
+    var solvedPuzzles by mutableStateOf(
+        runCatching { prefs.getStringSet(KEY_SOLVED, emptySet())?.toSet() }.getOrNull().orEmpty(),
+    )
         private set
+
+    /** Whether the activity is currently resumed in the foreground (pauses live timers when false). */
+    @Volatile
+    private var appInForeground: Boolean = true
+
+    fun setAppInForeground(foreground: Boolean) {
+        appInForeground = foreground
+    }
 
     private var job: Job? = null
 
@@ -87,9 +98,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
+            val cid = AppLog.newCorrelationId()
+            val started = System.nanoTime()
             val saved = withContext(saving) {
-                runCatching { saveFile.takeIf { it.exists() }?.readText()?.let(SavedGame::decode) }.getOrNull()
+                runCatching { saveFile.takeIf { it.exists() }?.readText()?.let(SavedGame::decode) }
+                    .onFailure { AppLog.warn("storage", "load_game_failed", cid, cause = it) }
+                    .getOrNull()
             }
+            val ms = (System.nanoTime() - started) / 1_000_000
+            if (saved != null) AppLog.info("storage", "load_game_ok", cid, durationMs = ms, context = mapOf("outcome" to saved.outcome.javaClass.simpleName))
             if (session == null && saved != null && saved.outcome == Outcome.Ongoing) resumable = saved
         }
     }
@@ -232,6 +249,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun tap(pos: Pos) {
         infernoNotice = null
         update { it.tap(pos) }
+    }
+
+    fun deselect() {
+        if (outbox == null) session = session?.clearSelection()
     }
 
     /** Checking whether the opponent has a legal reply (or a puzzle answer is mate) can take a moment. */
@@ -457,8 +478,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             while (inHell) {
                 delay(1_000)
                 val game = session ?: break
-                // The clock only runs while it's this player's turn on the board.
-                if (game.outcome != Outcome.Ongoing || game.opponentsTurn || endedInHell != null) continue
+                // The clock only runs while the app is visible and it's this player's turn on the board.
+                if (!appInForeground || game.outcome != Outcome.Ongoing || game.opponentsTurn || endedInHell != null) continue
                 hellSeconds--
                 if (hellSeconds <= 0) {
                     leaveHell()
@@ -516,10 +537,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
      * used one again once they've all been tried, rather than keep the player waiting.
      */
     fun nextTrial() {
+        val list = allPuzzles
         val puzzle = forged.removeFirstOrNull()
-            ?: allPuzzles.filter { it.id !in usedTrials }.randomOrNull()
-            ?: allPuzzles.filter { it.id != trial?.mode?.puzzle?.id }.randomOrNull()
-        puzzle?.let { usedTrials += it.id }
+            ?: list.filter { it.id !in usedTrials }.randomOrNull()
+            ?: list.filter { it.id != trial?.mode?.puzzle?.id }.randomOrNull()
+        if (puzzle != null && list.any { it.id == puzzle.id }) usedTrials += puzzle.id
         trial = puzzle?.let { GameSession(GameMode(puzzle = it)) }
         forge()
     }
@@ -651,7 +673,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun decodeTrials(text: String): Map<Int, Int> =
-        text.lines().filter { it.isNotBlank() }.associate { line -> line.split(' ').let { (index, solved) -> index.toInt() to solved.toInt() } }
+        text.lines().filter { it.isNotBlank() }.associate { line ->
+            val parts = line.split(' ')
+            require(parts.size == 2) { "Malformed trials line" }
+            val index = parts[0].toInt()
+            val solved = parts[1].toInt()
+            require(index >= 0 && solved >= 0) { "Negative trial count" }
+            index to solved
+        }
 
     // AI: a language model to play against, and to design puzzles.
 
@@ -909,13 +938,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     /** Runs [action], a request to the relay, showing [title] meanwhile, and what went wrong if it fails. */
     private fun openOnline(title: String, action: suspend () -> Unit) {
         connectJob?.cancel()
+        val cid = AppLog.newCorrelationId()
         retry = { openOnline(title, action) }
         connecting = Connecting(title)
         connectJob = viewModelScope.launch {
+            val started = System.nanoTime()
             try {
                 action()
+                AppLog.info("online", "open_online_ok", cid, durationMs = (System.nanoTime() - started) / 1_000_000)
             } catch (e: IOException) {
-                Log.w(TAG, "Couldn't open the online game", e)
+                AppLog.warn("online", "open_online_failed", cid, durationMs = (System.nanoTime() - started) / 1_000_000, context = mapOf("status" to (e as? RelayException)?.status), cause = e)
                 connecting = Connecting(title, describe(e))
                 return@launch
             }
@@ -959,7 +991,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 connection = null
                 online = online?.copy(connected = false)
-                delay(wait)
+                delay(wait + Random.nextLong(wait / 4 + 1))
                 wait = (wait * 2).coerceAtMost(RECONNECT_MAX_MILLIS)
             }
         }
@@ -1081,8 +1113,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         online = null
     }
 
+    override fun onCleared() {
+        stopJob()
+        connectJob?.cancel()
+        generateJob?.cancel()
+        designJob?.cancel()
+        aiTestJob?.cancel()
+        downloadJobs.values.forEach { it.cancel() }
+        leaveOnline()
+        closeInferno()
+        OnDeviceModel.closeIdle()
+    }
+
     private companion object {
-        const val TAG = "MultiverseChess"
         const val KEY_SOLVED = "solved_puzzles"
         const val KEY_ONLINE = "game"
 
@@ -1096,6 +1139,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         const val HELL_SECONDS = 90
         const val FORGED_AHEAD = 2
 
-        fun formatSeconds(seconds: Int) = "%d:%02d".format(seconds / 60, seconds % 60)
+        fun formatSeconds(seconds: Int) = String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60)
     }
 }

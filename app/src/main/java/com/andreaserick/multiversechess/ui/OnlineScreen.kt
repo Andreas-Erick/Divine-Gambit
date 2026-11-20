@@ -19,25 +19,32 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,11 +52,20 @@ import com.andreaserick.multiversechess.online.Connecting
 import com.andreaserick.multiversechess.online.Invitation
 import com.andreaserick.multiversechess.online.OnlineStatus
 import com.andreaserick.multiversechess.online.Ticket
+import kotlinx.coroutines.delay
 
 /** The host's wait for a friend: the invitation to send, until the friend opens it. */
 @Composable
 fun LobbyScreen(status: OnlineStatus, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1_500)
+            copied = false
+        }
+    }
     OnlinePage(onBack, modifier) {
         Text("Invite a friend", style = MaterialTheme.typography.titleLarge)
         Text(
@@ -70,7 +86,14 @@ fun LobbyScreen(status: OnlineStatus, onBack: () -> Unit, modifier: Modifier = M
         )
         Text(status.link, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
         PrimaryPill(onClick = { share(context, status.link) }, modifier = Modifier.fillMaxWidth()) { Text("Share link") }
-        SecondaryPill(onClick = { copy(context, status.link) }, modifier = Modifier.fillMaxWidth()) { Text("Copy link") }
+        SecondaryPill(
+            onClick = {
+                copy(context, status.link)
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                copied = true
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (copied) "Copied \u2713" else "Copy link") }
         Text(ticketSummary(status.ticket), style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
         when {
             status.problem != null -> Text(status.problem, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
@@ -92,14 +115,15 @@ fun InvitationScreen(invitation: Invitation, playerName: String, onJoin: (String
             style = MaterialTheme.typography.bodyMedium,
             color = Palette.inkSoft,
         )
-        NameField(name, onChange = { name = it })
+        NameField(name, onChange = { name = it }, onDone = { valid?.let(onJoin) })
         PrimaryPill(onClick = { valid?.let(onJoin) }, enabled = valid != null, modifier = Modifier.fillMaxWidth()) { Text("Join the game") }
     }
 }
 
 /** The name a player gives for an online game, shown to the other player. */
 @Composable
-fun NameField(name: String, onChange: (String) -> Unit) {
+fun NameField(name: String, onChange: (String) -> Unit, onDone: (() -> Unit)? = null) {
+    val focusManager = LocalFocusManager.current
     OutlinedTextField(
         value = name,
         // Longer names are cut off as they're typed, rather than refused later.
@@ -107,7 +131,11 @@ fun NameField(name: String, onChange: (String) -> Unit) {
         label = { Text("Your name") },
         supportingText = { Text("Shown to your friend in this game") },
         singleLine = true,
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = {
+            focusManager.clearFocus()
+            onDone?.invoke()
+        }),
         modifier = Modifier.fillMaxWidth(),
     )
 }

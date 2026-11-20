@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -29,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -68,6 +70,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -174,13 +177,18 @@ fun MenuScreen(
                     },
             ) {
                 // Pages slide in from the right going in, and back out to the right going home.
+                val reducedMotion = LocalReducedMotion.current
                 AnimatedContent(
                     page,
                     transitionSpec = {
-                        val direction = if (targetState != MenuPage.HOME) 1 else -1
-                        (slideInHorizontally { it / 4 * direction } + fadeIn())
-                            .togetherWith(slideOutHorizontally { -it / 4 * direction } + fadeOut())
-                            .using(SizeTransform(clip = false))
+                        if (reducedMotion) {
+                            fadeIn(androidx.compose.animation.core.snap()) togetherWith fadeOut(androidx.compose.animation.core.snap())
+                        } else {
+                            val direction = if (targetState != MenuPage.HOME) 1 else -1
+                            (slideInHorizontally { it / 4 * direction } + fadeIn())
+                                .togetherWith(slideOutHorizontally { -it / 4 * direction } + fadeOut())
+                                .using(SizeTransform(clip = false))
+                        }
                     },
                     label = "menu page",
                 ) { shown ->
@@ -230,7 +238,7 @@ fun MenuScreen(
                                 SecondaryPill(onClick = onPuzzles, modifier = Modifier.fillMaxWidth()) {
                                     Text("Puzzles")
                                     Spacer(Modifier.weight(1f))
-                                    Text(puzzleProgress, color = Palette.inkSoft)
+                                    Text(puzzleProgress, style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = TABULAR_NUMS), color = Palette.inkSoft)
                                 }
                                 Row(Modifier.align(Alignment.CenterHorizontally)) {
                                     TextButton(onClick = { showRules = true }) { Text("How to play") }
@@ -384,12 +392,14 @@ private fun ResumeRow(title: String, summary: String, discardLabel: String, onCo
     Row(verticalAlignment = Alignment.CenterVertically) {
         PrimaryPill(onClick = onContinue, modifier = Modifier.weight(1f)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(title)
+                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     summary,
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.onAccent.copy(alpha = 0.75f),
                     textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -515,7 +525,12 @@ private fun JoinDialog(onJoin: (String) -> Unit, onDismiss: () -> Unit) {
                     onValueChange = { text = it },
                     singleLine = true,
                     placeholder = { Text("ABCDE-FGHJK") },
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Characters,
+                        autoCorrectEnabled = false,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { code?.let(onJoin) }),
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -540,6 +555,7 @@ private fun OpponentDialog(aiName: String?, againstAi: Boolean, onChoose: (Boole
                     Row(
                         Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 48.dp)
                             .selectable(ai == againstAi, role = Role.RadioButton, onClick = { onChoose(ai) })
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -597,6 +613,7 @@ private fun LimitDialog(selected: Int?, onSelect: (Int?) -> Unit, onDismiss: () 
                     Row(
                         Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 48.dp)
                             .selectable(option == selected, role = Role.RadioButton, onClick = { onSelect(option) })
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -634,6 +651,7 @@ private fun VariantDialog(selected: Variant, onSelect: (Variant) -> Unit, onDism
                     Row(
                         Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 48.dp)
                             .selectable(option == selected, role = Role.RadioButton, onClick = { onSelect(option) })
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,

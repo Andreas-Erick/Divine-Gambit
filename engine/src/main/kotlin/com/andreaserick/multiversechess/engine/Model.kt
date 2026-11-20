@@ -78,7 +78,13 @@ data class Square(val x: Int, val y: Int) {
     override fun toString(): String = "${'a' + x}${y + 1}"
 
     companion object {
-        fun parse(name: String): Square = Square(name[0] - 'a', name[1] - '1')
+        fun parse(name: String): Square {
+            require(name.length == 2) { "Invalid square: $name" }
+            val x = name[0] - 'a'
+            val y = name[1] - '1'
+            require(isOnBoard(x, y)) { "Square off board: $name" }
+            return Square(x, y)
+        }
 
         fun isOnBoard(x: Int, y: Int): Boolean = x in 0 until BOARD_SIZE && y in 0 until BOARD_SIZE
     }
