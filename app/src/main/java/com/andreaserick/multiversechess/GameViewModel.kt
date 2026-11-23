@@ -246,6 +246,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         closeInferno()
         session = null
         aiRemark = null
+        // A model on this phone holds hundreds of megabytes to gigabytes; don't keep it past its
+        // game. The next AI game loads it again. (An AI puzzle design, if running, still needs it.)
+        if (current != null && designJob?.isActive != true) releaseDeviceModel()
+    }
+
+    /** Unloads the model on this phone, if one is loaded; it's loaded again when next needed. */
+    fun releaseDeviceModel() {
+        viewModelScope.launch { OnDeviceModel.release() }
     }
 
     fun tap(pos: Pos) {

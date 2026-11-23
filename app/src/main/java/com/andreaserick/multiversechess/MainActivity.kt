@@ -1,5 +1,6 @@
 package com.andreaserick.multiversechess
 
+import android.content.ComponentCallbacks2
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -63,6 +64,15 @@ import kotlin.math.min
 
 class MainActivity : ComponentActivity() {
     private val viewModel: GameViewModel by viewModels()
+
+    /**
+     * Once the app is in the background list, Android kills the biggest processes first: drop the
+     * phone's own AI model (by far the largest thing held) rather than lose the whole app.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) viewModel.releaseDeviceModel()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
