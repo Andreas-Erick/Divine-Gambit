@@ -1,7 +1,5 @@
 package com.andreaserick.multiversechess.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -14,11 +12,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
@@ -49,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -68,10 +70,17 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -154,7 +163,14 @@ fun InfernoScreen(
         if (active && (notice != null || ended != null)) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
-    Box(modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        modifier
+            .fillMaxSize()
+            // Touches that land on nothing here (while a trial is forged, say) stop here rather than
+            // reaching the board behind.
+            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
+    ) {
+        val cardMaxHeight = maxHeight * 0.45f
         InfernoDepths({ time.floatValue }, { camera.offset }, Modifier.fillMaxSize())
         if (trial != null) {
             // On a layer of its own, so the fire moving behind and in front doesn't redraw the boards.
@@ -209,13 +225,16 @@ fun InfernoScreen(
                     RoundIconButton(Icons.Filled.Info, "Hint", { showHint = true })
                 }
             }
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                HellClock(seconds, clockRunning, opponent)
-                for (soul in souls) SoulChip(soul, selected = soul.index == chosen, onClick = { onChoose(soul.index) })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                HellClock(seconds, clockRunning, opponent, active)
+                Spacer(Modifier.width(8.dp))
+                Row(
+                    Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    for (soul in souls) SoulChip(soul, selected = soul.index == chosen, onClick = { onChoose(soul.index) })
+                }
             }
         }
 
@@ -229,56 +248,69 @@ fun InfernoScreen(
                 .padding(12.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            SlabCard(Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
+            // At most a little under half the screen, so the souls and the trial stay in view; the
+            // news scrolls, and the buttons stay in reach.
+            SlabCard(Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = cardMaxHeight)) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AnimatedVisibility(notice != null) {
-                        Text(notice.orEmpty(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Palette.gold)
-                    }
                     val soul = souls.firstOrNull { it.index == chosen }
                     val passed = trial?.outcome is Outcome.Checkmate
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (checking) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Palette.accent)
-                            Spacer(Modifier.width(10.dp))
+                    Column(
+                        Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        LingeringText(notice) {
+                            Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Palette.gold)
                         }
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                when {
-                                    checking -> "Judging your answer…"
-                                    passed -> "Trial passed"
-                                    soul != null -> "Trial for your ${soul.soul.type.displayName.lowercase()}"
-                                    else -> "A trial"
-                                },
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            Text(
-                                when {
-                                    soul != null && !passed -> "${soul.solved} of ${soul.soul.trials} passed · White to move, checkmate in one turn"
-                                    else -> "White to move: checkmate in one turn"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Palette.inkSoft,
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (checking) {
+                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Palette.accent)
+                                Spacer(Modifier.width(10.dp))
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    when {
+                                        checking -> "Judging your answer…"
+                                        passed -> "Trial passed"
+                                        soul != null -> "Trial for your ${soul.soul.type.displayName.lowercase()}"
+                                        else -> "A trial"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    when {
+                                        soul != null && !passed -> "${soul.solved} of ${soul.soul.trials} passed · White to move, checkmate in one turn"
+                                        else -> "White to move: checkmate in one turn"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Palette.inkSoft,
+                                )
+                            }
+                        }
+                        LingeringText(trial?.message?.takeIf { !passed }) {
+                            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                         }
                     }
-                    AnimatedVisibility(trial?.message != null && !passed) {
-                        Text(trial?.message.orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (passed) {
                             if (souls.any { !it.free }) {
-                                SecondaryPill(onClick = onLeave) { Text("To the board") }
-                                PrimaryPill(onClick = onNext, modifier = Modifier.weight(1f)) { Text("Next trial") }
+                                SecondaryPill(onClick = onLeave, modifier = Modifier.weight(1f)) { Text("To the board", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                PrimaryPill(onClick = onNext, modifier = Modifier.weight(1.2f)) { Text("Next trial", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             } else {
                                 PrimaryPill(onClick = onLeave, modifier = Modifier.weight(1f)) { Text("Back to the board") }
                             }
                         } else {
-                            SecondaryPill(onClick = onUndo, enabled = trial?.previous != null && !checking) { Text("Undo") }
-                            SecondaryPill(onClick = onSkip, enabled = !checking) { Text("Another") }
+                            // Setting the trial aside is kept away from Submit, at the far end; the main
+                            // action gets the most room, so it never shrinks to a letter in large text.
+                            SecondaryPill(onClick = onSkip, enabled = !checking, modifier = Modifier.weight(1f)) {
+                                Text("New trial", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            SecondaryPill(onClick = onUndo, enabled = trial?.previous != null && !checking, modifier = Modifier.weight(0.8f)) {
+                                Text("Undo", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                             PrimaryPill(
                                 onClick = onSubmit,
                                 enabled = trial != null && trial.state.canSubmit && !checking,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1.4f),
                             ) { Text("Submit", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         }
                     }
@@ -292,7 +324,7 @@ fun InfernoScreen(
             onDismissRequest = { showHint = false },
             confirmButton = { TextButton(onClick = { showHint = false }) { Text("Got it") } },
             title = { Text("Hint") },
-            text = { Text(trial.mode.puzzle!!.hint) },
+            text = { Text(trial.mode.puzzle!!.hint, Modifier.verticalScroll(rememberScrollState())) },
         )
     }
 
@@ -302,7 +334,12 @@ fun InfernoScreen(
             onDismissRequest = onLeave,
             confirmButton = { TextButton(onClick = onLeave) { Text("Back to the board") } },
             icon = {
-                Box(Modifier.size(52.dp).background(if (won) Palette.gold else Palette.threat, CircleShape), contentAlignment = Alignment.Center) {
+                val disc = when {
+                    won -> Palette.gold
+                    ended == Outcome.Stalemate -> Palette.inkSoft
+                    else -> Palette.threat
+                }
+                Box(Modifier.size(52.dp).background(disc, CircleShape), contentAlignment = Alignment.Center) {
                     Icon(FlameIcon, contentDescription = null, tint = Palette.onGold, modifier = Modifier.size(30.dp))
                 }
             },
@@ -325,32 +362,46 @@ fun InfernoScreen(
     }
 }
 
-/** Time left in the Inferno; paused, with whose turn it is, while the opponent plays. */
+/**
+ * Time left in the Inferno; paused, with whose turn it is, while the opponent plays. Low on time,
+ * it pulses red, only while on screen ([active]); the digits stay light, to read at a glance.
+ */
 @Composable
-private fun HellClock(seconds: Int, running: Boolean, opponent: String) {
+private fun HellClock(seconds: Int, running: Boolean, opponent: String, active: Boolean) {
     val low = running && seconds <= 15
     val reducedMotion = LocalReducedMotion.current
-    val pulse = if (!low || reducedMotion) 1f else rememberInfiniteTransition(label = "clock").animateFloat(
+    val pulse = if (!low || reducedMotion || !active) null else rememberInfiniteTransition(label = "clock").animateFloat(
         initialValue = 1f,
         targetValue = 0.45f,
         animationSpec = infiniteRepeatable(tween(500), RepeatMode.Reverse),
         label = "pulse",
-    ).value
+    )
+    val shape = RoundedCornerShape(50)
+    val fill = if (low) Palette.threat else Palette.card
     Surface(
-        shape = RoundedCornerShape(50),
-        color = if (low) Palette.threat.copy(alpha = 0.25f + 0.25f * pulse) else Palette.card,
+        shape = shape,
+        color = Color.Transparent,
         border = BorderStroke(1.dp, if (low) Palette.threat else Palette.presentEdge),
+        // The pulse is read while drawing, so it doesn't recompose the clock on every frame.
+        modifier = Modifier
+            .widthIn(min = 76.dp, max = 140.dp)
+            .drawBehind {
+                drawRect(if (low) fill.copy(alpha = 0.25f + 0.25f * (pulse?.value ?: 1f)) else fill)
+            },
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 if (running) String.format(java.util.Locale.US, "%d:%02d", seconds / 60, seconds % 60) else "Paused",
                 style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = TABULAR_NUMS),
-                color = if (low) Palette.threat else Palette.ink,
+                color = Palette.ink,
+                maxLines = 1,
             )
             Text(
                 if (running) "your turn" else "$opponent's turn",
                 style = MaterialTheme.typography.labelSmall,
                 color = Palette.inkSoft,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -359,9 +410,17 @@ private fun HellClock(seconds: Int, running: Boolean, opponent: String) {
 /** A taken piece, with a pip for each trial: lit once passed. */
 @Composable
 private fun SoulChip(soul: WaitingSoul, selected: Boolean, onClick: () -> Unit) {
+    val name = soul.soul.type.displayName.lowercase()
     Surface(
+        selected = selected,
         onClick = onClick,
         enabled = !soul.free,
+        modifier = Modifier.clearAndSetSemantics {
+            contentDescription = if (soul.free) "Your $name, free" else "Your $name, ${soul.solved} of ${soul.soul.trials} trials passed"
+            this.selected = selected
+            role = Role.Tab
+            if (!soul.free) onClick(label = "Seek this piece") { onClick(); true }
+        },
         shape = RoundedCornerShape(50),
         color = if (selected) Palette.accent.copy(alpha = 0.22f) else Palette.card,
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) Palette.accent else Palette.presentEdge),
@@ -412,8 +471,9 @@ internal fun flicker(t: Float, seed: Float = 0f): Float =
 private fun InfernoDepths(time: () -> Float, pan: () -> Offset, modifier: Modifier = Modifier) {
     val edgePath = remember { Path() }
     val rockPath = remember { Path() }
+    val sky = remember { BrushCache() }
     Box(modifier) {
-        Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawAbyss(time(), pan()) }
+        Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawAbyss(time(), pan(), sky) }
         Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawRidges(pan(), edgePath, rockPath) }
         Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawSmoke(time(), pan()) }
     }
@@ -423,19 +483,22 @@ private fun InfernoDepths(time: () -> Float, pan: () -> Offset, modifier: Modifi
 private fun DrawScope.horizon(pan: Offset) = (size.height * 0.4f + pan.y * 0.03f).coerceIn(size.height * 0.2f, size.height * 0.7f)
 
 /** Far below, a red glow at the horizon, black overhead, and embers drifting in the distance. */
-private fun DrawScope.drawAbyss(t: Float, pan: Offset) {
+private fun DrawScope.drawAbyss(t: Float, pan: Offset, sky: BrushCache) {
     val w = size.width
     val h = size.height
     val horizon = horizon(pan)
     val hf = horizon / h
+    // The same sky until the view pans or resizes, rather than a new gradient every frame.
     drawRect(
-        Brush.verticalGradient(
-            0f to Color(0xFF060102),
-            (hf - 0.18f) to Color(0xFF1A0507),
-            hf to Color(0xFF4E1009),
-            (hf + 0.14f) to Color(0xFF1F0605),
-            1f to Color(0xFF0A0202),
-        ),
+        sky.get(hf, h) {
+            Brush.verticalGradient(
+                0f to Color(0xFF060102),
+                (hf - 0.18f) to Color(0xFF1A0507),
+                hf to Color(0xFF4E1009),
+                (hf + 0.14f) to Color(0xFF1F0605),
+                1f to Color(0xFF0A0202),
+            )
+        },
     )
     val glow = Offset(w / 2f + pan.x * 0.02f, horizon)
     val glowRadius = w * 1.1f
@@ -524,6 +587,21 @@ private fun DrawScope.drawSmoke(t: Float, pan: Offset) {
 
 private const val RIDGES = 4
 
+/** A brush kept until what it depends on ([a], [b]) changes, so drawing a frame doesn't make a new one. */
+private class BrushCache {
+    private var a = Float.NaN
+    private var b = Float.NaN
+    private var brush: Brush? = null
+
+    fun get(a: Float, b: Float, make: () -> Brush): Brush {
+        val kept = brush
+        if (kept != null && a == this.a && b == this.b) return kept
+        this.a = a
+        this.b = b
+        return make().also { brush = it }
+    }
+}
+
 /** A ridge's height at [u] (wavelengths along it), about 0 to 1: rolling, with sharp crags. */
 private fun ridge(u: Float, seed: Float): Float =
     0.5f + 0.28f * sin(u + seed) + 0.16f * sin(u * 2.3f + seed * 1.7f) + 0.22f * (0.5f - abs(sin(u * 4.1f + seed * 2.9f)))
@@ -546,6 +624,7 @@ private fun InfernoAtmosphere(time: () -> Float, modifier: Modifier = Modifier) 
     val ash = remember { Random(11).let { r -> List(26) { Spark(r.nextFloat(), 0.3f + r.nextFloat() * 0.7f, r.nextFloat(), 0.8f + r.nextFloat() * 1.6f) } } }
     val tongues = remember { Random(3).let { r -> List(9) { r.nextFloat() } } }
     val tongue = remember { Path() }
+    val flameBrush = remember { BrushCache() }
     Canvas(
         modifier.graphicsLayer {
             alpha = 0.75f + 0.25f * sin(time() * 0.9f)
@@ -579,7 +658,20 @@ private fun InfernoAtmosphere(time: () -> Float, modifier: Modifier = Modifier) 
             drawCircle(Palette.ember.copy(alpha = alpha * 0.35f), radius.dp.toPx() * 2.8f, at)
         }
         val step = size.width / (tongues.size - 1)
-        for ((i, seed) in tongues.withIndex()) {
+        // One gradient for every tongue, from the tallest a tongue can reach down to the floor.
+        val tallest = 215.dp.toPx() * 1.3f
+        val fire = flameBrush.get(size.height, tallest) {
+            Brush.verticalGradient(
+                0f to Color(0x00FFD27A),
+                0.3f to Color(0xB3FF9A2E),
+                0.7f to Color(0xD9D2381A),
+                1f to Color(0xFF6A0C06),
+                startY = size.height - tallest,
+                endY = size.height,
+            )
+        }
+        for (i in tongues.indices) {
+            val seed = tongues[i]
             val x = i * step
             val height = 215.dp.toPx() * (0.65f + 0.35f * seed) * flicker(t, seed * 40f)
             val tip = Offset(x + sin(t * 2.3f + seed * 12f) * 18.dp.toPx(), size.height - height)
@@ -589,18 +681,7 @@ private fun InfernoAtmosphere(time: () -> Float, modifier: Modifier = Modifier) 
             tongue.cubicTo(x - half * 0.6f, size.height - height * 0.5f, tip.x - half * 0.2f, tip.y + height * 0.3f, tip.x, tip.y)
             tongue.cubicTo(tip.x + half * 0.2f, tip.y + height * 0.3f, x + half * 0.6f, size.height - height * 0.5f, x + half, size.height)
             tongue.close()
-            drawPath(
-                tongue,
-                Brush.verticalGradient(
-                    0f to Color(0x00FFD27A),
-                    0.3f to Color(0xB3FF9A2E),
-                    0.7f to Color(0xD9D2381A),
-                    1f to Color(0xFF6A0C06),
-                    startY = tip.y,
-                    endY = size.height,
-                ),
-                alpha = heat,
-            )
+            drawPath(tongue, fire, alpha = heat)
         }
     }
 }
@@ -608,12 +689,17 @@ private fun InfernoAtmosphere(time: () -> Float, modifier: Modifier = Modifier) 
 /** The title, glowing like a coal. */
 @Composable
 private fun GlowingTitle(text: String, time: () -> Float) {
-    val glow = flicker(time())
-    Text(
-        text,
-        style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(Palette.ember, Offset.Zero, 10f + 18f * (glow - 0.75f))),
-        maxLines = 1,
-    )
+    // A steady glow, and a stronger one over it whose opacity flickers: read while drawing, so the
+    // title isn't composed again on every frame.
+    Box {
+        Text(text, style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(Palette.ember, Offset.Zero, 10f)), maxLines = 1)
+        Text(
+            text,
+            style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(Palette.ember, Offset.Zero, 22f)),
+            maxLines = 1,
+            modifier = Modifier.graphicsLayer { alpha = ((flicker(time()) - 0.75f) * 2f).coerceIn(0f, 1f) }.clearAndSetSemantics {},
+        )
+    }
 }
 
 /** A spark's (or ash flake's) place across the screen (0 to 1), speed, where in its course it starts, and size in dp. */

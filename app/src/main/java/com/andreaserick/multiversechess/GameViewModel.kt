@@ -651,6 +651,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     /** The answer to a short test message, or what went wrong; null while waiting. */
     var aiTest by mutableStateOf<Result<String>?>(null)
         private set
+
+    /** Waiting for the answer to a test message. */
+    var aiTesting by mutableStateOf(false)
+        private set
     private var aiTestJob: Job? = null
 
     /** Sends [settings]' model a short message, to check it works. */
@@ -658,18 +662,25 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val model = aiStore.model(settings) ?: return
         aiTestJob?.cancel()
         aiTest = null
+        aiTesting = true
         aiTestJob = viewModelScope.launch {
-            aiTest = try {
-                Result.success(model.chat("You are a friendly chess player. Answer in one short sentence.", listOf(ChatMessage(false, "Say hello to your opponent."))))
-            } catch (e: AiException) {
-                Result.failure(e)
+            try {
+                aiTest = try {
+                    Result.success(model.chat("You are a friendly chess player. Answer in one short sentence.", listOf(ChatMessage(false, "Say hello to your opponent."))))
+                } catch (e: AiException) {
+                    Result.failure(e)
+                }
+            } finally {
+                aiTesting = false
             }
         }
     }
 
+    /** Forgets the test's answer, and stops waiting for one (the settings it was for have changed). */
     fun clearAiTest() {
         aiTestJob?.cancel()
         aiTest = null
+        aiTesting = false
     }
 
     /** Models offered by the Gemini API or a server, for the settings; or why they couldn't be listed. */
@@ -752,6 +763,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     var designFailed by mutableStateOf<String?>(null)
         private set
     private var designJob: Job? = null
+
+    /** Stops designing an AI puzzle. */
+    fun cancelDesign() {
+        designJob?.cancel()
+        designing = null
+    }
 
     /** Has the AI design a puzzle, optionally on a [theme]; it's kept with the generated ones, and opened. */
     fun designPuzzle(theme: String?) {

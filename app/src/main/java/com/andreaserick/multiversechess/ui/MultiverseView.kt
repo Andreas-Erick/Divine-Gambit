@@ -41,12 +41,17 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -190,12 +195,31 @@ class CameraState {
         scale = newScale
     }
 
+    /** Gliding or sliding on its own, as opposed to still or held by a finger. */
+    private var moving = false
+
+    /** The last touch landed while the view was moving: it stops the view, and does nothing else. */
+    private var touchStoppedMotion = false
+
+    /** A finger has come down; note whether it caught the view moving. */
+    fun touched() {
+        touchStoppedMotion = moving
+    }
+
+    /** Whether the tap now ending only stopped the view (so it shouldn't also pick a square); asks once. */
+    fun tapStoppedMotion(): Boolean = touchStoppedMotion.also { touchStoppedMotion = false }
+
     /** Stops any glide or fling, because the player has taken hold of the view. */
     suspend fun stop() = mutex.mutate(MutatePriority.UserInput) {}
 
     /** Keeps the view sliding after a pan is released, slowing to a stop. */
     suspend fun fling(velocity: Offset, decay: DecayAnimationSpec<Offset>) = mutex.mutate {
-        AnimationState(Offset.VectorConverter, offset, velocity).animateDecay(decay) { offset = value }
+        moving = true
+        try {
+            AnimationState(Offset.VectorConverter, offset, velocity).animateDecay(decay) { offset = value }
+        } finally {
+            moving = false
+        }
     }
 
     /** The scale at which [area] fills [fill] of the view's width or most of its uncovered height. */
@@ -213,7 +237,11 @@ class CameraState {
     suspend fun focus(area: Rect, resetZoom: Boolean = false, minSquare: Float = 0f, fallback: Rect = area) {
         if (!hasSize) return
         val shown = if (fitScale(area, 0.62f) * Layout.SQ < minSquare) fallback else area
-        val fit = fitScale(shown, 0.62f).coerceIn(minScale, MAX_SCALE)
+        // A single board fills most of the width (clear of the tool buttons at the side), so its
+        // squares are big enough to aim at; several
+        // leave room around them, with neighbouring boards in sight.
+        val single = shown.width <= Layout.BOARD + 1f
+        val fit = fitScale(shown, if (single) 0.74f else 0.62f).coerceIn(minScale, MAX_SCALE)
         moveTo(shown.center, if (resetZoom || !initialized || fit < scale) fit else scale)
     }
 
@@ -241,9 +269,14 @@ class CameraState {
         mutex.mutate {
             val startOffset = offset
             val startScale = scale
-            animate(0f, 1f, animationSpec = tween(520, easing = FastOutSlowInEasing)) { f, _ ->
-                scale = startScale + (targetScale - startScale) * f
-                offset = startOffset + (targetOffset - startOffset) * f
+            moving = true
+            try {
+                animate(0f, 1f, animationSpec = tween(520, easing = FastOutSlowInEasing)) { f, _ ->
+                    scale = startScale + (targetScale - startScale) * f
+                    offset = startOffset + (targetOffset - startOffset) * f
+                }
+            } finally {
+                moving = false
             }
         }
     }
@@ -309,14 +342,76 @@ internal fun GameState.timelineArea(l: Int): Rect {
 internal fun GameState.overviewArea(): Rect =
     timelines.keys.map { timelineArea(it) }.reduce(::union).inflate(Layout.SQ * 2)
 
-/** Precomputed per-position square and timeline sets so pan/zoom frames allocate nothing. */
+/**
+ * Precomputed per-position highlights and timeline sets, so pan and zoom frames allocate nothing:
+ * for each board with highlights, one [SquareMark] per square (file × 8 + rank), 0 for none.
+ */
 private class HighlightSets(
     val turnMoves: List<Move>,
-    val recentSquares: Set<Pos>,
-    val travelSquares: Set<Pos>,
     val targetSquares: Set<Pos>,
     val checkedTimelines: Set<Int>,
+    val marks: Map<BoardId, IntArray>,
+    val mandatory: Set<Int>,
+    val timelinesInOrder: List<Timeline>,
 )
+
+/** What a square is highlighted for, most important first. */
+private object SquareMark {
+    const val NONE = 0
+    const val SELECTED = 1
+    const val TARGET = 2
+    const val TRAVEL = 3
+    const val RETURNED = 4
+    const val RECENT = 5
+}
+
+private fun highlightSets(session: GameSession, targets: List<Move>, threats: List<Move>): HighlightSets {
+    val moves = session.lastTurn + session.state.turnMoves
+    val marks = HashMap<BoardId, IntArray>()
+    fun mark(pos: Pos?, kind: Int) {
+        if (pos == null) return
+        val squares = marks.getOrPut(pos.boardId) { IntArray(BOARD_SIZE * BOARD_SIZE) }
+        val i = pos.x * BOARD_SIZE + pos.y
+        if (squares[i] == SquareMark.NONE || kind < squares[i]) squares[i] = kind
+    }
+    for (move in moves) {
+        if (move.isSpatial) {
+            mark(move.from.copy(t = move.from.t + 1), SquareMark.RECENT)
+            mark(move.to.copy(t = move.to.t + 1), SquareMark.RECENT)
+        } else {
+            mark(move.from, SquareMark.TRAVEL)
+            mark(move.to, SquareMark.TRAVEL)
+        }
+    }
+    mark(session.returned, SquareMark.RETURNED)
+    for (target in targets) mark(target.to, SquareMark.TARGET)
+    mark(session.selected, SquareMark.SELECTED)
+    return HighlightSets(
+        turnMoves = moves,
+        targetSquares = targets.mapTo(HashSet()) { it.to },
+        checkedTimelines = threats.mapTo(HashSet()) { it.from.l },
+        marks = marks,
+        mandatory = session.state.mandatoryTimelines.toSet(),
+        timelinesInOrder = session.state.timelines.values.sortedBy { it.index },
+    )
+}
+
+/**
+ * Text measured once and kept, since measuring is far too slow to do for every label on every
+ * frame. Keyed by [key]; made again only when the styles change (their colours follow the palette).
+ */
+private class TextCache(private val measurer: TextMeasurer) {
+    private val kept = HashMap<Long, TextLayoutResult>()
+
+    fun get(key: Long, text: String, style: TextStyle): TextLayoutResult = kept.getOrPut(key) { measurer.measure(text, style) }
+
+    companion object {
+        fun timeline(l: Int, active: Boolean) = (1L shl 40) or ((l + 100_000L) shl 1) or (if (active) 1L else 0L)
+        fun turn(t: Int) = (2L shl 40) or t.toLong()
+        fun rail(l: Int, active: Boolean, checked: Boolean) = (3L shl 40) or ((l + 100_000L) shl 2) or (if (active) 1L else 0L) or (if (checked) 2L else 0L)
+        const val CHECK = 4L shl 40
+    }
+}
 
 @Composable
 fun MultiverseView(
@@ -337,20 +432,13 @@ fun MultiverseView(
     camera.reducedMotion = LocalReducedMotion.current
     val targets = remember(session) { session.targets }
     val threats = remember(session) { session.state.shownThreats() }
-    val highlights = remember(session, targets, threats) {
-        val moves = session.lastTurn + session.state.turnMoves
-        val recent = moves.filter { it.isSpatial }
-            .flatMap { listOf(it.from.copy(t = it.from.t + 1), it.to.copy(t = it.to.t + 1)) }
-            .toSet()
-        val travel = moves.filter { !it.isSpatial }.flatMap { listOf(it.from, it.to) }.toSet()
-        val targetSet = targets.mapTo(HashSet()) { it.to }
-        val checked = threats.mapTo(HashSet()) { it.from.l }
-        HighlightSets(moves, recent, travel, targetSet, checked)
-    }
+    val highlights = remember(session, targets, threats) { highlightSets(session, targets, threats) }
     val glyphs = remember(textMeasurer, density) { measurePieceGlyphs(textMeasurer, density) }
     // Label colours follow the palette into the Inferno and back.
     val hot = Palette.heat > 0.5f
     val labels = remember(textMeasurer, density, hot) { LabelStyles(density) }
+    val texts = remember(textMeasurer, labels) { TextCache(textMeasurer) }
+    val spoken = remember(session) { describeForScreenReaders(session) }
     val rail = remember { TimelineRail() }
     val scratchA = remember { Path() }
     val scratchB = remember { Path() }
@@ -360,11 +448,18 @@ fun MultiverseView(
         modifier
             .clipToBounds()
             .onSizeChanged { camera.viewSize = it }
+            // The board for screen readers: what's on it, and actions to pick a piece and move it.
+            .semantics {
+                contentDescription = spoken.description
+                customActions = spoken.actions.map { (label, pos) -> CustomAccessibilityAction(label) { currentOnTap(pos); true } }
+            }
             .pointerInput(camera) { detectCameraGestures(camera) }
             .pointerInput(camera) {
                 detectTapGestures { tap ->
+                    // Catching the view as it glides stops it; that tap isn't a move as well.
+                    if (camera.tapStoppedMotion()) return@detectTapGestures
                     val state = currentSession.state
-                    rail.hit(tap)?.let { l ->
+                    rail.hit(tap, minHeight = 48.dp.toPx(), slack = 8.dp.toPx())?.let { l ->
                         scope.launch { camera.frame(state.timelineArea(l), TIMELINE_MIN_BOARD) }
                         return@detectTapGestures
                     }
@@ -398,19 +493,59 @@ fun MultiverseView(
             translate(camera.offset.x, camera.offset.y)
             scale(camera.scale, camera.scale, pivot = Offset.Zero)
         }) {
-            drawMultiverse(session, highlights, threats, glyphs, labels, textMeasurer, visible, detailed = Layout.SQ * camera.scale >= 10f, slice, scratchA, scratchB)
+            drawMultiverse(session, highlights, threats, glyphs, labels, texts, visible, camera.scale, slice, scratchA, scratchB)
         }
         drawTimelineRail(
-            session.state, highlights.checkedTimelines, camera, rail, textMeasurer, labels.rail, slice, session.sliceAnchor(),
+            session.state, highlights, camera, rail, texts, labels.rail, slice, session.sliceAnchor(),
         )
     }
 }
 
-/** Squares smaller than this on screen are too small to tap reliably. */
-private val MIN_TAPPABLE_SQUARE = 14.dp
+/** Squares smaller than this on screen are too small to tap reliably: a tap zooms in instead. */
+private val MIN_TAPPABLE_SQUARE = 24.dp
 
 /** The present is shown no smaller than this, so it can be played without zooming. */
-internal val COMFORTABLE_SQUARE = 20.dp
+internal val COMFORTABLE_SQUARE = 28.dp
+
+/** What the board says to a screen reader, and the actions it offers: each a label and the square it taps. */
+private class Spoken(val description: String, val actions: List<Pair<String, Pos>>)
+
+private fun describeForScreenReaders(session: GameSession): Spoken {
+    val state = session.state
+    val side = state.sideToMove
+    fun at(pos: Pos) = "${Notation.boardLabel(pos.l, pos.t)} ${pos.square}"
+    val description = buildString {
+        append("Multiverse: ${state.timelines.size} ${if (state.timelines.size == 1) "timeline" else "timelines"}, present turn ${Notation.turnNumber(state.present)}. ")
+        if (session.outcome == Outcome.Ongoing) append("${side.displayName} to move") else append("The game is over")
+        val left = state.mandatoryTimelines.size
+        if (session.outcome == Outcome.Ongoing && left > 0) append(", $left ${if (left == 1) "board" else "boards"} to play")
+        append('.')
+        session.selected?.let { pos -> state.pieceAt(pos)?.let { append(" Selected: ${it.type.displayName.lowercase()} on ${at(pos)}.") } }
+        if (state.threats().isNotEmpty() && session.outcome == Outcome.Ongoing) append(" Check.")
+    }
+    if ((session.outcome != Outcome.Ongoing && !session.isExploring) || session.isOpponentsTurn) return Spoken(description, emptyList())
+    val actions = ArrayList<Pair<String, Pos>>()
+    val selected = session.selected
+    if (selected != null) {
+        for (move in session.targets) {
+            val taken = state.pieceAt(move.to)?.let { " taking the ${it.type.displayName.lowercase()}" }.orEmpty()
+            actions += "Move to ${at(move.to)}$taken" to move.to
+        }
+        actions += "Deselect" to selected
+    } else {
+        for (timeline in state.playableTimelines(side)) {
+            val t = timeline.end
+            timeline.boardAt(t)?.forEachPiece { x, y, piece ->
+                val pos = Pos(timeline.index, t, x, y)
+                if (piece.side == side && state.legalMovesFrom(pos).isNotEmpty()) actions += "Select ${piece.type.displayName.lowercase()} on ${at(pos)}" to pos
+            }
+        }
+    }
+    return Spoken(description, actions)
+}
+
+/** Turn captions are drawn at least this tall on screen, as far as they can grow. */
+private val MIN_CAPTION = 14.dp
 
 /** When framing a long timeline, boards stay at least this fraction of the view's width. */
 internal const val TIMELINE_MIN_BOARD = 0.24f
@@ -424,6 +559,7 @@ private suspend fun PointerInputScope.detectCameraGestures(camera: CameraState) 
     coroutineScope {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false)
+            camera.touched()
             launch { camera.stop() }
             val tracker = VelocityTracker()
             var pastSlop = false
@@ -466,7 +602,23 @@ private suspend fun PointerInputScope.detectCameraGestures(camera: CameraState) 
 private class TimelineRail {
     val chips = mutableListOf<Pair<Int, Rect>>()
 
-    fun hit(screen: Offset): Int? = chips.firstOrNull { it.second.inflate(8f).contains(screen) }?.first
+    /**
+     * The chip nearest [screen], within [slack] of it sideways and at least [minHeight] tall for
+     * aiming; where two chips' reach overlaps, the nearer wins.
+     */
+    fun hit(screen: Offset, minHeight: Float, slack: Float): Int? {
+        var best: Int? = null
+        var bestDistance = Float.MAX_VALUE
+        for ((l, chip) in chips) {
+            val reach = maxOf(chip.height, minHeight) / 2
+            val distance = abs(chip.center.y - screen.y)
+            if (screen.x in chip.left - slack..chip.right + slack && distance <= reach && distance < bestDistance) {
+                best = l
+                bestDistance = distance
+            }
+        }
+        return best
+    }
 }
 
 /**
@@ -476,23 +628,24 @@ private class TimelineRail {
  */
 private fun DrawScope.drawTimelineRail(
     state: GameState,
-    checked: Set<Int>,
+    highlights: HighlightSets,
     camera: CameraState,
     rail: TimelineRail,
-    textMeasurer: TextMeasurer,
+    texts: TextCache,
     style: TextStyle,
     slice: SliceView?,
     anchor: BoardId,
 ) {
     rail.chips.clear()
+    val checked = highlights.checkedTimelines
     val columns = slice?.columns(anchor) ?: Columns.STANDARD
     val margin = 10.dp.toPx()
     val padX = 10.dp.toPx()
     val padY = 5.dp.toPx()
     val labelReadable = Layout.SQ * 0.75f * camera.scale >= 11.dp.toPx()
-    val mandatory = state.mandatoryTimelines.toSet()
+    val mandatory = highlights.mandatory
     var lastBottom = Float.NEGATIVE_INFINITY
-    for (timeline in state.timelines.values.sortedBy { it.index }) {
+    for (timeline in highlights.timelinesInOrder) {
         val l = timeline.index
         // History view keeps a single timeline.
         if (slice == SliceView.HISTORY && l != anchor.l) continue
@@ -500,12 +653,14 @@ private fun DrawScope.drawTimelineRail(
         val labelLeft = columns.x(timeline.start) - if (timeline.parent == null) Layout.SQ * 3 else 0f
         if (labelReadable && camera.toScreen(Offset(labelLeft, 0f)).x >= 0f) continue
         val active = state.isActive(l)
-        val text = textMeasurer.measure("L${Notation.timelineLabel(l)}", style.copy(color = if (active) Palette.ink else Palette.inkSoft))
+        val inCheck = l in checked
+        // A timeline in check says so in words as well as with its red ring.
+        val text = texts.get(TextCache.rail(l, active, inCheck), (if (inCheck) "! " else "") + "L${Notation.timelineLabel(l)}", style.copy(color = if (active) Palette.ink else Palette.inkSoft))
         val chipSize = Size(text.size.width + padX * 2, text.size.height + padY * 2)
         // Sits in the gap above its row, where the world-space labels of branches go.
         val top = camera.toScreen(Offset(0f, l * Layout.ROW - Layout.GAP_Y / 2)).y - chipSize.height / 2
         if (top < camera.coveredTop - 40f || top + chipSize.height > size.height - camera.coveredBottom + 40f) continue
-        if (top < lastBottom + 4f) continue
+        if (top < lastBottom + 8.dp.toPx()) continue
         lastBottom = top + chipSize.height
         val chip = Rect(Offset(margin, top), chipSize)
         val radius = CornerRadius(chipSize.height / 2)
@@ -530,11 +685,13 @@ private fun DrawScope.drawTimelineRail(
 
 /** Text styles for labels drawn in world space (sizes are in world units). */
 internal class LabelStyles(density: Density) {
+    /** The system's text size, up to half again as large, since these labels share the board's space. */
+    private val textScale = density.fontScale.coerceIn(1f, 1.5f)
     val caption = with(density) {
-        TextStyle(color = Palette.inkSoft, fontSize = (Layout.SQ * 0.42f).toSp(), fontFamily = SerifFamily, fontWeight = FontWeight.SemiBold)
+        TextStyle(color = Palette.inkSoft, fontSize = (Layout.SQ * 0.42f * textScale).toSp(), fontFamily = SerifFamily, fontWeight = FontWeight.SemiBold)
     }
     val timeline = with(density) {
-        TextStyle(color = Palette.ink, fontSize = (Layout.SQ * 0.75f).toSp(), fontFamily = SerifFamily, fontWeight = FontWeight.Bold)
+        TextStyle(color = Palette.ink, fontSize = (Layout.SQ * 0.75f * textScale).toSp(), fontFamily = SerifFamily, fontWeight = FontWeight.Bold)
     }
 
     /** For the timeline chips pinned to the screen's edge, so in screen units. */
@@ -581,9 +738,10 @@ private fun DrawScope.drawMultiverse(
     threats: List<Move>,
     glyphs: Map<PieceType, PieceGlyph>,
     labels: LabelStyles,
-    textMeasurer: TextMeasurer,
+    texts: TextCache,
     visible: Rect,
-    detailed: Boolean,
+    /** Screen pixels per world unit. */
+    scale: Float,
     slice: SliceView?,
     scratchA: Path,
     scratchB: Path,
@@ -594,7 +752,13 @@ private fun DrawScope.drawMultiverse(
     val columns = slice?.columns(anchor) ?: Columns.STANDARD
     val history = slice == SliceView.HISTORY
     val side = state.sideToMove
-    val mandatory = state.mandatoryTimelines.toSet()
+    val mandatory = highlights.mandatory
+    val squarePx = Layout.SQ * scale
+    // Glyphs once squares are big enough to read them; below a few pixels, a board is one tile.
+    val detailed = squarePx >= 10f
+    val tiny = squarePx < 4f
+    // Lines at least a pixel wide on screen, however far out the view is zoomed.
+    val hairline = 1f / scale
     val ongoing = session.outcome == Outcome.Ongoing
     val canMove = ongoing || session.isExploring
 
@@ -617,7 +781,7 @@ private fun DrawScope.drawMultiverse(
         val presentWidth = Layout.BOARD + Layout.GAP_X * 0.64f
         drawRect(Palette.present, Offset(presentLeft, visible.top), Size(presentWidth, visible.height))
         for (x in floatArrayOf(presentLeft, presentLeft + presentWidth)) {
-            drawLine(Palette.presentEdge, Offset(x, visible.top), Offset(x, visible.bottom), strokeWidth = Layout.SQ * 0.12f)
+            drawLine(Palette.presentEdge, Offset(x, visible.top), Offset(x, visible.bottom), strokeWidth = maxOf(Layout.SQ * 0.12f, hairline))
         }
     }
 
@@ -647,32 +811,53 @@ private fun DrawScope.drawMultiverse(
     }
 
     val turnMoves = highlights.turnMoves
-    val recentSquares = highlights.recentSquares
-    val travelSquares = highlights.travelSquares
     val targetSquares = highlights.targetSquares
+    val margin = Layout.SQ * 2
 
     for (timeline in state.timelines.values) {
+        // Rows out of sight are skipped whole, and within a row only the columns in sight are drawn.
+        val rowTop = timeline.index * Layout.ROW
+        if (rowTop + Layout.BOARD < visible.top - margin || rowTop > visible.bottom + margin) continue
         val active = state.isActive(timeline.index)
-        val label = textMeasurer.measure("L${Notation.timelineLabel(timeline.index)}", labels.timeline.copy(
+        val label = texts.get(TextCache.timeline(timeline.index, active), "L${Notation.timelineLabel(timeline.index)}", labels.timeline.copy(
             color = if (active) Palette.ink else Palette.inkSoft,
         ))
-        for (t in timeline.start..timeline.end) {
+        val firstT = maxOf(timeline.start, columns.halfMoveAt(visible.left - margin) - 1)
+        val lastT = minOf(timeline.end, columns.halfMoveAt(visible.right + margin) + 1)
+        for (t in firstT..lastT) {
+            if (!shown(timeline.index, t)) continue
             val rect = Layout.boardRect(timeline.index, t, columns)
-            if (!rect.inflate(Layout.SQ * 2).overlaps(visible) || !shown(timeline.index, t)) continue
             val board = timeline.boardAt(t)!!
             val playable = canMove && t == timeline.end && Side.toMoveAt(t) == side
             drawBoardCard(rect, Side.toMoveAt(t), playable, must = timeline.index in mandatory)
 
-            drawBoard(board, rect.topLeft, glyphs, detailed) { x, y ->
-                val pos = Pos(timeline.index, t, x, y)
-                when {
-                    pos == session.selected -> Palette.selection
-                    pos in targetSquares -> Palette.target
-                    pos in travelSquares -> Palette.travel
-                    pos == session.returned -> Palette.returned
-                    pos in recentSquares -> Palette.lastMove
+            val marks = highlights.marks[BoardId(timeline.index, t)]
+            drawBoard(board, rect.topLeft, glyphs, detailed, tiny) { x, y ->
+                when (marks?.get(x * BOARD_SIZE + y) ?: SquareMark.NONE) {
+                    SquareMark.SELECTED -> Palette.selection
+                    SquareMark.TARGET -> Palette.target
+                    SquareMark.TRAVEL -> Palette.travel
+                    SquareMark.RETURNED -> Palette.returned
+                    SquareMark.RECENT -> Palette.lastMove
                     else -> null
                 }
+            }
+            // Shapes as well as colours, so the marks can be told apart without colour (and in the
+            // Inferno, where they all burn orange): a ring for the selection, a pip in the corner
+            // for a piece just back from the Inferno, a cross on a threatened king.
+            session.selected?.takeIf { it.l == timeline.index && it.t == t && !tiny }?.let { pos ->
+                val inset = Layout.SQ * 0.06f
+                drawRect(
+                    Palette.ink,
+                    Layout.squareTopLeft(pos, columns) + Offset(inset, inset),
+                    Size(Layout.SQ - inset * 2, Layout.SQ - inset * 2),
+                    style = Stroke(maxOf(Layout.SQ * 0.08f, hairline * 1.5f)),
+                )
+            }
+            session.returned?.takeIf { it.l == timeline.index && it.t == t && !tiny }?.let { pos ->
+                val corner = Layout.squareTopLeft(pos, columns) + Offset(Layout.SQ * 0.8f, Layout.SQ * 0.2f)
+                drawCircle(Palette.slab, Layout.SQ * 0.14f, corner)
+                drawCircle(Palette.gold, Layout.SQ * 0.1f, corner)
             }
             for (pos in targetSquares) {
                 if (pos.l != timeline.index || pos.t != t) continue
@@ -685,19 +870,34 @@ private fun DrawScope.drawMultiverse(
             }
             for (threat in threats) {
                 if (threat.to.l == timeline.index && threat.to.t == t) {
-                    drawRect(Palette.threat.copy(alpha = 0.45f), Layout.squareTopLeft(threat.to, columns), Size(Layout.SQ, Layout.SQ))
+                    val square = Layout.squareTopLeft(threat.to, columns)
+                    drawRect(Palette.threat.copy(alpha = 0.45f), square, Size(Layout.SQ, Layout.SQ))
+                    if (!tiny) {
+                        val a = Layout.SQ * 0.14f
+                        val b = Layout.SQ - a
+                        val stroke = maxOf(Layout.SQ * 0.07f, hairline)
+                        drawLine(Palette.threat, square + Offset(a, a), square + Offset(b, b), stroke, StrokeCap.Round)
+                        drawLine(Palette.threat, square + Offset(b, a), square + Offset(a, b), stroke, StrokeCap.Round)
+                    }
                 }
             }
 
-            val caption = textMeasurer.measure("T${Notation.turnNumber(t)}", labels.caption)
-            val captionBottom = rect.top - if (playable) Layout.SQ * 0.95f else Layout.SQ * 0.45f
-            var captionLeft = rect.left
-            if (timeline.parent != null && t == timeline.start) {
-                // A branch is named above its first board, with that board's turn beside the name.
-                drawText(label, topLeft = Offset(rect.left, captionBottom - label.size.height))
-                captionLeft += label.size.width + Layout.SQ * 0.35f
+            // Turn captions, kept readable on screen: when zoomed far out they're drawn larger
+            // (up to a point) rather than shrinking to specks, and left out once boards are tiles.
+            if (detailed) {
+                val caption = texts.get(TextCache.turn(t), "T${Notation.turnNumber(t)}", labels.caption)
+                val captionBottom = rect.top - if (playable) Layout.SQ * 0.95f else Layout.SQ * 0.45f
+                var captionLeft = rect.left
+                if (timeline.parent != null && t == timeline.start) {
+                    // A branch is named above its first board, with that board's turn beside the name.
+                    drawText(label, topLeft = Offset(rect.left, captionBottom - label.size.height))
+                    captionLeft += label.size.width + Layout.SQ * 0.35f
+                }
+                val grow = (MIN_CAPTION.toPx() / (caption.size.height * scale)).coerceIn(1f, 2.2f)
+                withTransform({ scale(grow, grow, pivot = Offset(captionLeft, captionBottom)) }) {
+                    drawText(caption, topLeft = Offset(captionLeft, captionBottom - caption.size.height))
+                }
             }
-            drawText(caption, topLeft = Offset(captionLeft, captionBottom - caption.size.height))
 
             // Fade inactive timelines, and while a piece is selected, the boards it can't land on
             // (the opponent's, half a turn out of step).
@@ -731,7 +931,7 @@ private fun DrawScope.drawMultiverse(
         val center = Offset(rect.right + Layout.SQ * 0.75f, rect.top - Layout.SQ * 0.75f)
         drawCircle(Palette.slab, Layout.SQ * 0.8f, center + Layout.SLAB * 0.6f)
         drawCircle(Palette.threat, Layout.SQ * 0.8f, center)
-        val mark = textMeasurer.measure("!", labels.timeline.copy(color = Palette.onThreat))
+        val mark = texts.get(TextCache.CHECK, "!", labels.timeline.copy(color = Palette.onThreat))
         drawText(mark, topLeft = center - Offset(mark.size.width / 2f, mark.size.height / 2f))
     }
 }
@@ -841,13 +1041,19 @@ internal fun DrawScope.drawBoard(
     topLeft: Offset,
     glyphs: Map<PieceType, PieceGlyph>,
     detailed: Boolean = true,
+    /** Squares only a few pixels across: the board is drawn as one tile, with its pieces as dots. */
+    tiny: Boolean = false,
     highlight: (x: Int, y: Int) -> Color? = { _, _ -> null },
 ) {
     val squareSize = Size(Layout.SQ, Layout.SQ)
-    for (x in 0 until BOARD_SIZE) for (y in 0 until BOARD_SIZE) {
-        val square = topLeft + Offset(x * Layout.SQ, (BOARD_SIZE - 1 - y) * Layout.SQ)
-        drawRect(if ((x + y) % 2 == 0) Palette.darkSquare else Palette.lightSquare, square, squareSize)
-        highlight(x, y)?.let { drawRect(it, square, squareSize) }
+    if (tiny) {
+        drawRect(lerp(Palette.lightSquare, Palette.darkSquare, 0.5f), topLeft, Size(Layout.BOARD, Layout.BOARD))
+    } else {
+        for (x in 0 until BOARD_SIZE) for (y in 0 until BOARD_SIZE) {
+            val square = topLeft + Offset(x * Layout.SQ, (BOARD_SIZE - 1 - y) * Layout.SQ)
+            drawRect(if ((x + y) % 2 == 0) Palette.darkSquare else Palette.lightSquare, square, squareSize)
+            highlight(x, y)?.let { drawRect(it, square, squareSize) }
+        }
     }
     board.forEachPiece { x, y, piece ->
         val center = topLeft + Offset((x + 0.5f) * Layout.SQ, (BOARD_SIZE - y - 0.5f) * Layout.SQ)
@@ -874,11 +1080,9 @@ private fun DrawScope.drawPiece(glyph: PieceGlyph, side: Side, center: Offset) {
         drawText(glyph.body, color = fill, topLeft = glyph.body.topLeft())
         drawText(glyph.outline, color = outline, topLeft = glyph.outline.topLeft())
     } else {
-        // The hollow symbols' inner lines are too heavy on a dark piece, so outline it with a halo.
-        val d = Layout.SQ * 0.035f
-        for (dx in -1..1) for (dy in -1..1) {
-            if (dx != 0 || dy != 0) drawText(glyph.body, color = outline, topLeft = glyph.body.topLeft() + Offset(dx * d, dy * d))
-        }
+        // The hollow symbols' inner lines are too heavy on a dark piece, so outline it with a halo:
+        // the solid symbol stroked in the pale colour, then filled dark on top.
+        drawText(glyph.body, color = outline, topLeft = glyph.body.topLeft(), drawStyle = Stroke(width = Layout.SQ * 0.07f, join = StrokeJoin.Round))
         drawText(glyph.body, color = fill, topLeft = glyph.body.topLeft())
     }
 }

@@ -1,5 +1,8 @@
 package com.andreaserick.multiversechess.ui
 
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -8,12 +11,14 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
@@ -151,8 +156,8 @@ private fun scheme(h: Float) = darkColorScheme(
     onPrimaryContainer = lerp(Color(0xFFFBE2B0), Color(0xFFFFD9C2), h),
     secondary = Palette.gold,
     onSecondary = Palette.onGold,
-    secondaryContainer = Color(0xFF4A3812),
-    onSecondaryContainer = Color(0xFFFBE2B0),
+    secondaryContainer = lerp(Color(0xFF4A3812), Color(0xFF5A2410), h),
+    onSecondaryContainer = lerp(Color(0xFFFBE2B0), Color(0xFFFFD9C2), h),
     background = Palette.background,
     onBackground = Palette.ink,
     surface = Palette.card,
@@ -176,7 +181,7 @@ private val shapes = Shapes(
 )
 
 /** True when the user has turned off system animations ("Remove animations" in Accessibility). */
-val LocalReducedMotion = staticCompositionLocalOf { false }
+val LocalReducedMotion = compositionLocalOf { false }
 
 /** OpenType tabular numerals so live clocks, counters and indices never horizontally jitter. */
 internal const val TABULAR_NUMS = "tnum"
@@ -186,10 +191,21 @@ fun MultiverseChessTheme(content: @Composable () -> Unit) {
     // Material's colours change once, halfway into the Inferno or out, rather than on every frame
     // of the passage; the board and the Inferno follow the Palette as it blends.
     val context = LocalContext.current
-    val reducedMotion = remember(context) {
+    fun animationsOff() = runCatching {
+        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }.getOrDefault(false)
+    var reducedMotion by remember(context) { mutableStateOf(animationsOff()) }
+    // Follows the setting while the app runs, not only when it starts.
+    DisposableEffect(context) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                reducedMotion = animationsOff()
+            }
+        }
         runCatching {
-            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-        }.getOrDefault(false)
+            context.contentResolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
+        }
+        onDispose { context.contentResolver.unregisterContentObserver(observer) }
     }
     val hot by remember { derivedStateOf { Palette.heat >= 0.5f } }
     val scheme = remember(hot) { colors(if (hot) 1f else 0f) }

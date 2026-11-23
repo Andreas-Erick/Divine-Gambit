@@ -5,8 +5,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,9 +19,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,16 +39,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -54,7 +57,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -83,7 +85,6 @@ fun SoulScroll(
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     val unroll = remember { Animatable(if (reducedMotion) 1f else 0f) }
     val time = remember { mutableFloatStateOf(0f) }
-    val edgePath = remember { Path() }
     LaunchedEffect(reducedMotion) {
         if (reducedMotion) {
             unroll.snapTo(1f)
@@ -118,16 +119,25 @@ fun SoulScroll(
                     size.minDimension * 0.75f,
                 )
             }
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (active) onDismiss() },
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClickLabel = "Turn back",
+            ) { if (active) onDismiss() },
         contentAlignment = Alignment.Center,
     ) {
+        // Scrolls when there are more souls than fit, or the screen is short (in landscape, say),
+        // so every entry and "Turn back" stay in reach.
         Column(
             Modifier
                 .widthIn(max = 360.dp)
-                .onGloballyPositioned { middle = it.boundsInRoot().center }
                 .fillMaxWidth(0.88f)
-                // Taps on the scroll itself don't turn back.
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+                .systemBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .onGloballyPositioned { middle = it.boundsInRoot().center }
+                // Taps on the scroll itself don't turn back (and it isn't a button of its own).
+                .pointerInput(Unit) { detectTapGestures { } },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Roller()
@@ -147,7 +157,7 @@ fun SoulScroll(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .drawBehind { drawParchment(time.floatValue, edgePath) }
+                        .parchment { time.floatValue }
                         .padding(horizontal = 26.dp, vertical = 22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -302,54 +312,64 @@ private fun Roller(modifier: Modifier = Modifier) {
 
 /**
  * Old parchment: yellowed, darker toward its edges, stained, and singed along both sides, where
- * embers still glow faintly. [t] (seconds) makes them, and the candlelight from above, flicker.
+ * embers still glow faintly. [time] (seconds) makes them, and the candlelight from above, flicker.
+ * The parchment itself is drawn from a cache made once per size; only the embers and the light are
+ * drawn afresh each frame.
  */
-private fun DrawScope.drawParchment(t: Float, edge: Path) {
-    drawRect(Brush.verticalGradient(listOf(Color(0xFFD9C08C), Color(0xFFE8D6AC), Color(0xFFE3CC9C), Color(0xFFC9A970))))
-    drawRect(
-        Brush.horizontalGradient(
-            0f to Color(0x8A4A2610),
-            0.12f to Color.Transparent,
-            0.88f to Color.Transparent,
-            1f to Color(0x8A4A2610),
-        ),
+private fun Modifier.parchment(time: () -> Float): Modifier = drawWithCache {
+    val paper = Brush.verticalGradient(listOf(Color(0xFFD9C08C), Color(0xFFE8D6AC), Color(0xFFE3CC9C), Color(0xFFC9A970)))
+    val darkEdges = Brush.horizontalGradient(
+        0f to Color(0x8A4A2610),
+        0.12f to Color.Transparent,
+        0.88f to Color.Transparent,
+        1f to Color(0x8A4A2610),
     )
     // Old stains.
-    for (i in 0 until 6) {
+    val stains = List(6) { i ->
         val c = Offset(size.width * hash(i, 1), size.height * hash(i, 2))
         val r = size.minDimension * (0.08f + 0.14f * hash(i, 3))
-        drawCircle(Brush.radialGradient(listOf(Color(0x2A5A3415), Color.Transparent), c, r), r, c)
+        Triple(Brush.radialGradient(listOf(Color(0x2A5A3415), Color.Transparent), c, r), r, c)
     }
-    // Singed edges: a ragged burnt margin down each side, with embers in it.
+    // Singed edges: a ragged burnt margin down each side.
     val step = 6.dp.toPx()
-    for (side in 0..1) {
-        edge.reset()
-        val x0 = if (side == 0) 0f else size.width
-        val inward = if (side == 0) 1f else -1f
-        edge.moveTo(x0, 0f)
-        var y = 0f
-        var i = 0
-        while (y <= size.height) {
-            val depth = (2f + 9f * hash(i + side * 100, 4)) * density
-            edge.lineTo(x0 + inward * depth, y)
-            y += step
-            i++
-        }
-        edge.lineTo(x0, size.height)
-        edge.close()
-        drawPath(edge, Color(0xFF2A1308))
-        // The burn's glowing rim.
-        for (k in 0 until 14) {
-            val ey = size.height * hash(k + side * 50, 6)
-            val glow = (0.35f + 0.65f * hash(k, 7)) * (0.6f + 0.4f * flicker(t * 0.8f, k + side * 7f))
-            val ex = x0 + inward * (3f + 6f * hash(k, 8)) * density
-            drawCircle(Color(0xFFFF7A2E).copy(alpha = (0.55f * glow).coerceIn(0f, 1f)), 1.6f * density, Offset(ex, ey))
-            drawCircle(Color(0xFFE0442B).copy(alpha = (0.18f * glow).coerceIn(0f, 1f)), 5f * density, Offset(ex, ey))
+    val burns = (0..1).map { side ->
+        Path().apply {
+            val x0 = if (side == 0) 0f else size.width
+            val inward = if (side == 0) 1f else -1f
+            moveTo(x0, 0f)
+            var y = 0f
+            var i = 0
+            while (y <= size.height) {
+                lineTo(x0 + inward * (2f + 9f * hash(i + side * 100, 4)) * density, y)
+                y += step
+                i++
+            }
+            lineTo(x0, size.height)
+            close()
         }
     }
-    // Candlelight from above, never quite steady.
-    val light = (0.16f * flicker(t * 0.6f, 3f)).coerceIn(0f, 1f)
-    drawRect(Brush.radialGradient(listOf(Color(0xFFFFE2A0).copy(alpha = light), Color.Transparent), Offset(size.width / 2, 0f), size.width * 0.9f))
+    val candle = Brush.radialGradient(listOf(Color(0xFFFFE2A0), Color.Transparent), Offset(size.width / 2, 0f), size.width * 0.9f)
+    onDrawBehind {
+        val t = time()
+        drawRect(paper)
+        drawRect(darkEdges)
+        for ((brush, r, c) in stains) drawCircle(brush, r, c)
+        for (side in 0..1) {
+            drawPath(burns[side], Color(0xFF2A1308))
+            // The burn's glowing rim, with embers in it.
+            val x0 = if (side == 0) 0f else size.width
+            val inward = if (side == 0) 1f else -1f
+            for (k in 0 until 14) {
+                val ey = size.height * hash(k + side * 50, 6)
+                val glow = (0.35f + 0.65f * hash(k, 7)) * (0.6f + 0.4f * flicker(t * 0.8f, k + side * 7f))
+                val ex = x0 + inward * (3f + 6f * hash(k, 8)) * density
+                drawCircle(Color(0xFFFF7A2E).copy(alpha = (0.55f * glow).coerceIn(0f, 1f)), 1.6f * density, Offset(ex, ey))
+                drawCircle(Color(0xFFE0442B).copy(alpha = (0.18f * glow).coerceIn(0f, 1f)), 5f * density, Offset(ex, ey))
+            }
+        }
+        // Candlelight from above, never quite steady.
+        drawRect(candle, alpha = (0.16f * flicker(t * 0.6f, 3f)).coerceIn(0f, 1f))
+    }
 }
 
 private val Ink = Color(0xFF2B140A)

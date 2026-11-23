@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -41,6 +42,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -92,7 +96,8 @@ fun LobbyScreen(status: OnlineStatus, onBack: () -> Unit, modifier: Modifier = M
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 copied = true
             },
-            modifier = Modifier.fillMaxWidth(),
+            // Announced when it changes to "Copied", for those who can't see it.
+            modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
         ) { Text(if (copied) "Copied \u2713" else "Copy link") }
         Text(ticketSummary(status.ticket), style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
         when {
@@ -129,7 +134,15 @@ fun NameField(name: String, onChange: (String) -> Unit, onDone: (() -> Unit)? = 
         // Longer names are cut off as they're typed, rather than refused later.
         onValueChange = { text -> if (text.codePointCount(0, text.length) <= Ticket.MAX_NAME_LENGTH) onChange(text) },
         label = { Text("Your name") },
-        supportingText = { Text("Shown to your friend in this game") },
+        supportingText = {
+            Row {
+                Text("Shown to your friend in this game", Modifier.weight(1f))
+                Text(
+                    "${name.codePointCount(0, name.length)}/${Ticket.MAX_NAME_LENGTH}",
+                    style = LocalTextStyle.current.copy(fontFeatureSettings = TABULAR_NUMS),
+                )
+            }
+        },
         singleLine = true,
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = {

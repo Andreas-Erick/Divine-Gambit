@@ -11,10 +11,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +56,8 @@ class AiSettingsState(
     val settings: AiSettings,
     val onChange: (AiSettings) -> Unit,
     val test: Result<String>?,
+    /** Waiting for the test's answer. */
+    val testing: Boolean,
     val onTest: () -> Unit,
     val models: Result<List<String>>?,
     val onListModels: () -> Unit,
@@ -71,8 +77,7 @@ class AiSettingsState(
 fun AiSettingsScreen(state: AiSettingsState, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val settings = state.settings
     val context = LocalContext.current
-    var testing by remember { mutableStateOf(false) }
-    LaunchedEffect(state.test) { if (state.test != null) testing = false }
+    val testing = state.testing
 
     // Android 17 asks before an app reaches devices on the local network, such as a model server.
     // The request waits for the answer; if access is refused, it fails with an explanation.
@@ -131,10 +136,7 @@ fun AiSettingsScreen(state: AiSettingsState, onBack: () -> Unit, modifier: Modif
         if (settings.provider != AiProvider.OFF) {
             HorizontalDivider(color = Palette.presentEdge.copy(alpha = 0.6f))
             PrimaryPill(
-                onClick = {
-                    testing = true
-                    withLocalNetwork(state.onTest)
-                },
+                onClick = { withLocalNetwork(state.onTest) },
                 enabled = settings.isReady && !testing,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (testing) "Waiting for an answer…" else "Test") }
@@ -223,16 +225,26 @@ private fun ModelChoice(
             Text("Model", style = MaterialTheme.typography.titleSmall)
             Text(current.ifBlank { "None chosen yet" }, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
         }
+        val loading = asked && listed == null
         SecondaryPill(onClick = {
             asked = true
             onList()
-        }, enabled = enabled) { Text(if (asked && listed == null) "Loading…" else "Choose") }
+        }, enabled = enabled && !loading) {
+            if (loading) {
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = Palette.accent)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(if (loading) "Loading…" else "Choose")
+        }
     }
     if (asked) {
+        var all by remember { mutableStateOf(false) }
         listed?.fold(
             { list ->
                 if (list.isEmpty()) Text("No models found.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                for (model in list.take(12)) {
+                // The first dozen, then all on request; the chosen one is always among those shown.
+                val shown = if (all || list.size <= MODELS_SHOWN) list else list.take(MODELS_SHOWN).let { first -> if (current in list && current !in first) first + current else first }
+                for (model in shown) {
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -242,14 +254,21 @@ private fun ModelChoice(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = model == current, onClick = null)
-                        Text(model, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 10.dp))
+                        Text(model, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 10.dp).weight(1f))
                     }
                 }
             },
             { Text(it.message ?: "The models couldn't be listed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) },
         )
+        val count = listed?.getOrNull()?.size ?: 0
+        if (!all && count > MODELS_SHOWN) {
+            TextButton(onClick = { all = true }) { Text("Show all $count models") }
+        }
     }
 }
+
+/** How many listed models show before "Show all". */
+private const val MODELS_SHOWN = 12
 
 @Composable
 private fun SecretField(label: String, value: String, onChange: (String) -> Unit) {
@@ -307,7 +326,7 @@ private fun DeviceSettings(state: AiSettingsState) {
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                "${progress / 1_000_000} of ${model.bytes / 1_000_000} MB",
+                                "${(progress * 100 / model.bytes).coerceIn(0, 100)}% · ${progress / 1_000_000} of ${model.bytes / 1_000_000} MB",
                                 style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TABULAR_NUMS),
                                 modifier = Modifier.weight(1f),
                             )
@@ -316,9 +335,27 @@ private fun DeviceSettings(state: AiSettingsState) {
                     }
                 }
                 installed -> Row {
+                    var confirmDelete by remember { mutableStateOf(false) }
                     TextButton(onClick = { uri.openUri(model.page) }) { Text("About & license") }
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { state.onDelete(model) }) { Text("Delete") }
+                    TextButton(
+                        onClick = { confirmDelete = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) { Text("Delete") }
+                    if (confirmDelete) {
+                        AlertDialog(
+                            onDismissRequest = { confirmDelete = false },
+                            confirmButton = {
+                                DestructiveTextButton("Delete") {
+                                    confirmDelete = false
+                                    state.onDelete(model)
+                                }
+                            },
+                            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep it") } },
+                            title = { Text("Delete ${model.name}?") },
+                            text = { Text("To play against it again, you'll need to download it again (${model.sizeText}).") },
+                        )
+                    }
                 }
                 else -> Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { uri.openUri(model.page) }) { Text("About & license") }

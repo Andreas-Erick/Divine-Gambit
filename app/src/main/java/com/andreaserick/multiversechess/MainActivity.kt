@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.toArgb
@@ -45,7 +46,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.andreaserick.multiversechess.engine.GameSession
-import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.ui.AiSettingsScreen
 import com.andreaserick.multiversechess.ui.AiSettingsState
 import com.andreaserick.multiversechess.ui.ConnectingScreen
@@ -125,6 +125,7 @@ private fun GameBoard(
     onInfernoPlaced: (Offset) -> Unit,
     onEnterInferno: (Int?, Offset?) -> Unit,
     modifier: Modifier,
+    covered: Boolean,
 ) {
     GameScreen(
         session = session,
@@ -149,6 +150,7 @@ private fun GameBoard(
         infernoNotice = viewModel.infernoNotice.takeIf { !viewModel.inHell },
         onEnterInferno = onEnterInferno,
         onInfernoPlaced = onInfernoPlaced,
+        covered = covered,
     )
 }
 
@@ -261,7 +263,10 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                             val d = descent.value
                             if (d > 0f) drawRect(Brush.radialGradient(listOf(Color(0x99400602), Color(0xF20A0101))), alpha = d)
                         }
-                        .stillOr(boardLayer) { stillBoard },
+                        .stillOr(boardLayer) { stillBoard }
+                        // Behind the Inferno, the board is out of reach of screen readers too.
+                        .then(if (hellShown) Modifier.clearAndSetSemantics {} else Modifier),
+                    covered = inHell,
                 )
                 if (session.mode.inferno) {
                     val side = session.playerSide
@@ -305,6 +310,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                 designing = viewModel.designing,
                 designFailed = viewModel.designFailed,
                 onDesign = viewModel::designPuzzle,
+                onCancelDesign = viewModel::cancelDesign,
                 onAiSettings = viewModel::openAiSettings,
                 onGenerate = viewModel::generatePuzzle,
                 onOpen = viewModel::startPuzzle,
@@ -345,6 +351,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                         viewModel.saveAiSettings(settings)
                     },
                     test = viewModel.aiTest,
+                    testing = viewModel.aiTesting,
                     onTest = { viewModel.testAi(viewModel.aiSettings) },
                     models = viewModel.aiModels,
                     onListModels = { viewModel.listAiModels(viewModel.aiSettings) },

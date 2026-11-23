@@ -42,7 +42,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +62,7 @@ fun PuzzleListScreen(
     onDesign: (String?) -> Unit,
     onAiSettings: () -> Unit,
     onGenerate: () -> Unit,
+    onCancelDesign: () -> Unit = {},
     onOpen: (Puzzle) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -113,7 +113,7 @@ fun PuzzleListScreen(
                     onGenerate = onGenerate,
                 )
             }
-            item { AiPuzzleCard(aiName, designing, designFailed, onDesign, onAiSettings) }
+            item { AiPuzzleCard(aiName, designing, designFailed, onDesign, onAiSettings, onCancelDesign) }
             item { Spacer(Modifier.navigationBarsPadding()) }
         }
     }
@@ -149,7 +149,14 @@ private fun GenerateCard(builtInLeft: Int, canGenerate: Boolean, generating: Boo
 
 /** Has the AI design a puzzle, optionally on a theme; or offers to set one up. */
 @Composable
-private fun AiPuzzleCard(aiName: String?, designing: String?, failed: String?, onDesign: (String?) -> Unit, onAiSettings: () -> Unit) {
+private fun AiPuzzleCard(
+    aiName: String?,
+    designing: String?,
+    failed: String?,
+    onDesign: (String?) -> Unit,
+    onAiSettings: () -> Unit,
+    onCancel: () -> Unit,
+) {
     var theme by rememberSaveable { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
     SlabCard(Modifier.fillMaxWidth()) {
@@ -190,10 +197,13 @@ private fun AiPuzzleCard(aiName: String?, designing: String?, failed: String?, o
                     Spacer(Modifier.width(10.dp))
                     Text("Designing…")
                 } else {
-                    Text("Ask $aiName for a puzzle", maxLines = 1)
+                    Text("Ask $aiName for a puzzle", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            designing?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft) }
+            designing?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+                SecondaryPill(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Stop") }
+            }
         }
     }
 }
@@ -231,7 +241,7 @@ private fun PuzzleCard(number: Int, puzzle: Puzzle, solved: Boolean, onClick: ()
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Puzzle $number", style = MaterialTheme.typography.labelMedium, color = Palette.accent)
-                    Text(puzzle.title, style = MaterialTheme.typography.titleMedium)
+                    Text(puzzle.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(
                         if (preview.second > 1) "${preview.second} timelines" else "One timeline",
                         style = MaterialTheme.typography.bodySmall,
