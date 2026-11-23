@@ -109,7 +109,7 @@ Online play needs an internet connection; everything else works offline.
   dimmed: they can still be played, but they don't hold back the present. A **teal arrow** at
   the end of the present means your next new timeline would be active.
 * **The present** is the earliest end of any active timeline. On your turn you must move on every
-  board in the present (gold ring), may move on your other raised boards, then tap **Submit**.
+  board in the present (gold ring), may move on your other raised boards, then tap **End turn**.
   Branching a new active timeline into the past pulls the present back with it, which can end your
   obligation to play the other present boards.
 * You can't submit a turn that lets the opponent capture any of your royal pieces (kings, or royal
@@ -160,6 +160,7 @@ How to play in the app shows each of these with a small drawing.
 | **Present** | Back to the boards you have to play. |
 | Row-of-boards button | **History view**: only the selected piece's timeline, through time, with your opponent's boards hidden and the gaps they leave closed up, so each column is one full turn. |
 | Column-of-boards button | **Parallel view**: only the selected piece's moment, across every timeline. |
+| Hold any round button | Show what it does. |
 
 Without a piece selected, the History and Parallel views use the first board you have to play.
 
@@ -447,7 +448,7 @@ on your computer for debug builds, see [relay/README.md](relay/README.md).
 * After each turn, a search of up to three seconds checks whether the next player has a legal turn,
   allowing at most one extra move on a non-present board (two when checking puzzles). With the
   default timeline limit it decided every position in our test games; with more timelines it can
-  occasionally run out first. The game then continues, and **⋮ › No legal turn?** searches every
+  occasionally run out first. The game then continues, and **⋮ › Stuck? Check for a legal turn** searches every
   turn, as long as it takes, to end the game or show a legal first move. A computer that can't
   find a turn resigns rather than being declared mated.
 * Castling only checks whether the king's squares are attacked on its own board, not by pieces

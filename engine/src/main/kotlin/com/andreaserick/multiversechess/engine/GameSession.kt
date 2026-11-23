@@ -244,7 +244,7 @@ data class GameSession(
         return copy(
             state = s,
             selected = null,
-            message = "This is the solution. Tap Submit to play it.",
+            message = "This is the solution. Tap End turn to play it.",
             log = log + lines,
             solutionShown = true,
             previous = this,

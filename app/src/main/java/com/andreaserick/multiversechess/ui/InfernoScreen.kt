@@ -276,7 +276,7 @@ fun InfernoScreen(
                                 PrimaryPill(onClick = onLeave, modifier = Modifier.weight(1f)) { Text("Back to the board") }
                             }
                         } else {
-                            // Setting the trial aside is kept away from Submit, at the far end; the main
+                            // Setting the trial aside is kept away from End turn, at the far end; the main
                             // action gets the most room, so it never shrinks to a letter in large text.
                             SecondaryPill(onClick = onSkip, enabled = !checking, modifier = Modifier.weight(1f)) {
                                 Text("New trial", maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -288,7 +288,7 @@ fun InfernoScreen(
                                 onClick = onSubmit,
                                 enabled = trial != null && trial.state.canSubmit && !checking,
                                 modifier = Modifier.weight(1.4f),
-                            ) { Text("Submit", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            ) { Text("End turn", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         }
                     }
                 }

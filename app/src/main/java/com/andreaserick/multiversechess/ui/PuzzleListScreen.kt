@@ -101,8 +101,9 @@ fun PuzzleListScreen(
                     }
                 }
             }
+            val nextUp = puzzles.firstOrNull { it.id !in solved }?.id
             itemsIndexed(puzzles, key = { _, p -> p.id }) { i, puzzle ->
-                PuzzleCard(i + 1, puzzle, puzzle.id in solved, onClick = { onOpen(puzzle) })
+                PuzzleCard(i + 1, puzzle, puzzle.id in solved, next = puzzle.id == nextUp, onClick = { onOpen(puzzle) })
             }
             item {
                 GenerateCard(
@@ -209,7 +210,7 @@ private fun AiPuzzleCard(
 }
 
 @Composable
-private fun PuzzleCard(number: Int, puzzle: Puzzle, solved: Boolean, onClick: () -> Unit) {
+private fun PuzzleCard(number: Int, puzzle: Puzzle, solved: Boolean, next: Boolean, onClick: () -> Unit) {
     val preview = remember(puzzle) {
         val start = puzzle.start()
         val (l, t) = start.focusBoard()
@@ -227,7 +228,14 @@ private fun PuzzleCard(number: Int, puzzle: Puzzle, solved: Boolean, onClick: ()
             modifier = Modifier.padding(end = 5.dp, bottom = 6.dp).fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
             color = Palette.card,
-            border = BorderStroke(if (solved) 2.dp else 1.dp, if (solved) Palette.gold else Palette.presentEdge),
+            border = BorderStroke(
+                if (solved || next) 2.dp else 1.dp,
+                when {
+                    solved -> Palette.gold
+                    next -> Palette.accent
+                    else -> Palette.presentEdge
+                },
+            ),
         ) {
             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -240,7 +248,7 @@ private fun PuzzleCard(number: Int, puzzle: Puzzle, solved: Boolean, onClick: ()
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Puzzle $number", style = MaterialTheme.typography.labelMedium, color = Palette.accent)
+                    Text(if (next) "Puzzle $number · Next up" else "Puzzle $number", style = MaterialTheme.typography.labelMedium, color = Palette.accent)
                     Text(puzzle.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(
                         if (preview.second > 1) "${preview.second} timelines" else "One timeline",

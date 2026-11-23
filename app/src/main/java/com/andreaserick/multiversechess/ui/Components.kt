@@ -23,10 +23,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -120,6 +126,7 @@ fun SecondaryPill(
 }
 
 /** A round button floating over the multiverse, for navigation and tools. [selected] fills it, for toggles. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoundIconButton(
     icon: ImageVector,
@@ -134,17 +141,25 @@ fun RoundIconButton(
         enabled -> Palette.ink
         else -> Palette.ink.copy(alpha = 0.3f)
     }
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.size(48.dp).shadow(3.dp, CircleShape),
-        shape = CircleShape,
-        color = if (selected) Palette.accent else Palette.card,
-        contentColor = tint,
-        border = if (selected) BorderStroke(1.dp, Palette.accent) else controlBorder,
+    // Held, it says what it does: the icon alone is seldom enough for someone new.
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+        tooltip = { PlainTooltip { Text(contentDescription) } },
+        state = rememberTooltipState(),
+        modifier = modifier,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription, tint = tint)
+        Surface(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(48.dp).shadow(3.dp, CircleShape),
+            shape = CircleShape,
+            color = if (selected) Palette.accent else Palette.card,
+            contentColor = tint,
+            border = if (selected) BorderStroke(1.dp, Palette.accent) else controlBorder,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription, tint = tint)
+            }
         }
     }
 }

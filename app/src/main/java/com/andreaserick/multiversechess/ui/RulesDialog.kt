@@ -31,7 +31,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun RulesDialog(onDismiss: () -> Unit) {
+fun RulesDialog(onDismiss: () -> Unit, onShowTipsAgain: (() -> Unit)? = null) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Got it") } },
@@ -48,6 +48,12 @@ fun RulesDialog(onDismiss: () -> Unit) {
                 BoardLegend()
                 Text("Buttons", style = MaterialTheme.typography.titleSmall, color = Palette.accent)
                 for (button in BUTTONS) ButtonHelpRow(button)
+                onShowTipsAgain?.let { show ->
+                    TextButton(onClick = {
+                        show()
+                        onDismiss()
+                    }) { Text("Show beginner tips again") }
+                }
             }
         },
     )
@@ -65,7 +71,7 @@ private val BUTTONS = listOf(
     ButtonHelp("How to play", "Opens these rules.", icon = Icons.Filled.Info),
     ButtonHelp(
         "More",
-        "In a game: the move list, No legal turn? (searches every turn when you think you're stuck) and " +
+        "In a game: the move list, Stuck? Check for a legal turn (searches every turn when you think you're stuck) and " +
             "Resign. In a puzzle: a hint, restarting it, and showing the solution.",
         icon = Icons.Filled.MoreVert,
     ),
@@ -75,7 +81,7 @@ private val BUTTONS = listOf(
     ButtonHelp("Parallel view", "Shows only the selected piece's moment, across every timeline.", icon = ParallelIcon),
     ButtonHelp("Undo", "Takes back your last move. Against the computer, it also takes back its reply.", pill = "Undo"),
     ButtonHelp("Present", "Brings you back to the boards you have to play.", pill = "Present"),
-    ButtonHelp("Submit", "Ends your turn once every board in the present has been played.", pill = "Submit"),
+    ButtonHelp("End turn", "Ends your turn once every board in the present has been played.", pill = "End turn"),
 )
 
 @Composable
@@ -111,12 +117,17 @@ private fun ButtonHelpRow(button: ButtonHelp) {
 }
 
 private val RULES = listOf(
+    "The short version" to
+        "It's chess, but pieces can also move to earlier boards, and that starts a new timeline: a " +
+        "new row of boards. Tap one of your pieces, tap a marked square, and once every board with " +
+        "a gold ring has a move, tap End turn. Checkmate a king on any board to win. Hold a round " +
+        "button to see what it does. The rest below is for when you want it.",
     "The multiverse" to
         "Each row is a timeline (teal ribbon) and each column a half-move, advancing to the right. " +
         "Drag to pan and pinch to zoom.",
     "Finding your way" to
         "Tap a timeline's ribbon, or its label on the left edge, to see the whole timeline. Tap a " +
-        "board that's too small to play on to zoom in on it. The corners button shows the whole " +
+        "board that's too small to play on to zoom in on it. The Overview button (four corners) shows the whole " +
         "multiverse, and Present brings you back to the boards you have to play. History view " +
         "keeps only the selected piece's timeline, through time; Parallel view only its moment, " +
         "across every timeline. Both hide your opponent's boards.",
@@ -136,7 +147,7 @@ private val RULES = listOf(
         "timeline just continues it.",
     "The present" to
         "The pale column marks the present: the earliest end of any active timeline. You must move " +
-        "on every board in it (gold ring), may move on your other raised boards, then tap Submit.",
+        "on every board in it (gold ring), may move on your other raised boards, then tap End turn.",
     "Timeline limit" to
         "Unless you choose Unlimited when starting a game, each player may only create a few " +
         "timelines. After that they can't branch any more: moves into the past are no longer " +
