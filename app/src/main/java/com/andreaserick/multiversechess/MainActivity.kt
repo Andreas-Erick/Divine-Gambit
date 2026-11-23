@@ -264,7 +264,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                         .stillOr(boardLayer) { stillBoard },
                 )
                 if (session.mode.inferno) {
-                    val side = session.mode.onlineSide ?: session.mode.computerSide?.opponent ?: session.state.sideToMove
+                    val side = session.playerSide
                     InfernoScreen(
                         side = side,
                         opponent = viewModel.online?.nameOf(side.opponent) ?: side.opponent.displayName,
@@ -273,7 +273,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                         trial = viewModel.trial,
                         checking = viewModel.trialChecking,
                         seconds = viewModel.hellSeconds,
-                        clockRunning = session.outcome == Outcome.Ongoing && !session.isComputerTurn && !session.isRemoteTurn,
+                        clockRunning = session.isPlayersTurn,
                         notice = viewModel.infernoNotice,
                         ended = viewModel.endedInHell,
                         onChoose = viewModel::chooseSoul,

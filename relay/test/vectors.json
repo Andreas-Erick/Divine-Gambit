@@ -1,0 +1,32 @@
+{
+  "comment": "Cases both the relay (relay/test/relay.test.mjs) and the app (AppBoundaryAndLogTest) check, so their rules for game codes and player names can't drift apart.",
+  "codes": {
+    "valid": ["ABCDEFGHJK", "23456789AB", "ZYXWVUTSRQ", "MNPQRSTUVW"],
+    "invalid": ["01ILABCDEF", "ABCDEFGHJO", "ABCDEFGHJL", "ABCDEFGHJ", "ABCDEFGHJKM", ""]
+  },
+  "names": {
+    "valid": [
+      ["Ana", "Ana"],
+      ["  Ana Maria  ", "Ana Maria"],
+      ["Éloïse", "Éloïse"],
+      ["👨‍👩‍👧", "👨‍👩‍👧"],
+      ["12345678901234567890", "12345678901234567890"],
+      ["😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀", "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"]
+    ],
+    "invalid": [
+      "",
+      "   ",
+      "123456789012345678901",
+      "‍Ana",
+      "Ana‍",
+      "A‍‍B",
+      "A\u0007B",
+      "A\nB",
+      "A B",
+      "A B",
+      "A​B",
+      "A‮B",
+      "A­B"
+    ]
+  }
+}

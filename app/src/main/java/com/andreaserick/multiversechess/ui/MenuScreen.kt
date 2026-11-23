@@ -76,6 +76,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.GameMode
+import com.andreaserick.multiversechess.engine.GameKind
 import com.andreaserick.multiversechess.engine.GameSession
 import com.andreaserick.multiversechess.engine.Notation
 import com.andreaserick.multiversechess.engine.Side
@@ -576,10 +577,12 @@ private fun OpponentDialog(aiName: String?, againstAi: Boolean, onChoose: (Boole
 /** E.g. "vs computer · Standard · turn 12 · 3 timelines". */
 private fun resumeSummary(game: GameSession): String {
     val parts = mutableListOf(
-        when {
-            game.mode.computerSide == null -> "Pass and play"
-            game.mode.aiOpponent -> "vs AI"
-            else -> "vs computer"
+        when (game.mode.kind) {
+            GameKind.AI -> "vs AI"
+            GameKind.COMPUTER -> "vs computer"
+            GameKind.ONLINE -> "Online"
+            GameKind.PUZZLE -> "Puzzle"
+            GameKind.PASS_AND_PLAY -> "Pass and play"
         },
     )
     parts += game.mode.variant.displayName

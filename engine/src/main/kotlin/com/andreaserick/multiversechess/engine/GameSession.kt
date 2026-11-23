@@ -17,7 +17,25 @@ data class GameMode(
     val aiOpponent: Boolean = false,
     /** Taken pieces go to the [Inferno], where their owner can win them back by solving puzzles. */
     val inferno: Boolean = false,
-)
+) {
+    /** The side played on this device throughout the game, or null when two people share it (pass and play, or a puzzle). */
+    val localSide: Side? get() = onlineSide ?: computerSide?.opponent
+
+    /** Who the game is against, as the menus describe it. */
+    val kind: GameKind get() = when {
+        puzzle != null -> GameKind.PUZZLE
+        onlineSide != null -> GameKind.ONLINE
+        computerSide != null && aiOpponent -> GameKind.AI
+        computerSide != null -> GameKind.COMPUTER
+        else -> GameKind.PASS_AND_PLAY
+    }
+
+    /** Whether games of this mode are saved on the device ([SavedGame]): not puzzles, which restart, nor online games, which the relay keeps. */
+    val savedOnDevice: Boolean get() = puzzle == null && onlineSide == null
+}
+
+/** The kinds of game, by who plays the other side. */
+enum class GameKind { PASS_AND_PLAY, COMPUTER, AI, ONLINE, PUZZLE }
 
 /**
  * Everything the UI needs for one game: the position, the selection, the move log and an undo
@@ -51,11 +69,31 @@ data class GameSession(
     /** In an online game, whether it's the other device's turn. */
     val isRemoteTurn: Boolean get() = outcome == Outcome.Ongoing && mode.onlineSide != null && mode.onlineSide != state.sideToMove
 
+    /** Whether the other player is to move: the computer, or the friend online. */
+    val isOpponentsTurn: Boolean get() = isComputerTurn || isRemoteTurn
+
+    /** The side whose player is using this device now: its own side, or in pass and play, the side to move. */
+    val playerSide: Side get() = mode.localSide ?: state.sideToMove
+
+    /** Whether it's the turn of someone at this device, as opposed to the computer or the friend online. */
+    val isPlayersTurn: Boolean get() = outcome == Outcome.Ongoing && !isOpponentsTurn
+
     /**
      * After checkmate or stalemate, moves can still be tried on the losing side's behalf to see
      * why every turn fails; they just can't be submitted.
      */
     val isExploring: Boolean get() = outcome is Outcome.Checkmate || outcome == Outcome.Stalemate
+
+    /** Whether this game can be continued later from the menu: saved on the device, and unfinished. */
+    val isResumable: Boolean get() = mode.savedOnDevice && outcome == Outcome.Ongoing
+
+    /**
+     * Whether reaching this session from [previous] solves its puzzle fairly: the side that just
+     * moved delivered checkmate, and the solution wasn't shown in this attempt.
+     */
+    fun solvesPuzzle(previous: GameSession?): Boolean =
+        mode.puzzle != null && !solutionShown && previous?.outcome == Outcome.Ongoing &&
+            outcome == Outcome.Checkmate(state.sideToMove.opponent)
 
     /** Legal moves of the selected piece. */
     val targets: List<Move> get() = selected?.let { state.legalMovesFrom(it) } ?: emptyList()
@@ -64,7 +102,7 @@ data class GameSession(
     fun clearSelection(): GameSession = if (selected == null) this else copy(selected = null, message = null)
 
     fun tap(pos: Pos): GameSession {
-        if ((outcome != Outcome.Ongoing && !isExploring) || isComputerTurn || isRemoteTurn) return this
+        if ((outcome != Outcome.Ongoing && !isExploring) || isOpponentsTurn) return this
         selected?.let { sel ->
             state.legalMovesFrom(sel).firstOrNull { it.to == pos }?.let { return play(it) }
         }
@@ -96,7 +134,7 @@ data class GameSession(
     fun canFree(index: Int): Boolean {
         val soul = souls.getOrNull(index) ?: return false
         return mode.inferno && !soul.freed && outcome == Outcome.Ongoing && state.sideToMove == soul.side &&
-            state.turnMoves.isEmpty() && !isComputerTurn && !isRemoteTurn
+            state.turnMoves.isEmpty() && !isOpponentsTurn
     }
 
     /**
@@ -256,7 +294,7 @@ data class GameSession(
      * otherwise the message shows how one legal turn begins.
      */
     fun claimNoLegalTurn(stop: () -> Boolean = { false }): GameSession {
-        if (outcome != Outcome.Ongoing || isComputerTurn || isRemoteTurn) return this
+        if (outcome != Outcome.Ongoing || isOpponentsTurn) return this
         val start = turnStart()
         return when (val result = TurnSearch(Int.MAX_VALUE, stop = stop).findLegalTurn(start)) {
             is TurnSearchResult.Found -> {
@@ -368,7 +406,7 @@ data class GameSession(
 
     fun resign(): GameSession {
         if (outcome != Outcome.Ongoing || mode.puzzle != null) return this
-        val loser = mode.onlineSide ?: mode.computerSide?.opponent ?: state.sideToMove
+        val loser = playerSide
         return copy(outcome = Outcome.Resignation(loser.opponent), selected = null, previous = this)
     }
 

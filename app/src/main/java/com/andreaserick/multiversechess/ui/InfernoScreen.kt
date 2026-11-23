@@ -81,7 +81,8 @@ import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.engine.PieceType
 import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Side
-import com.andreaserick.multiversechess.engine.Soul
+import com.andreaserick.multiversechess.engine.WaitingSoul
+import com.andreaserick.multiversechess.engine.winnerOrNull
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -90,11 +91,6 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
-
-/** A soul waiting in the Inferno, as shown: its [index] among the game's souls and the trials it has passed. */
-class SoulView(val index: Int, val soul: Soul, val solved: Int) {
-    val free: Boolean get() = solved >= soul.trials
-}
 
 /**
  * The Inferno: the player's taken pieces, and a puzzle ("trial") to solve for the one chosen. The
@@ -105,7 +101,7 @@ fun InfernoScreen(
     side: Side,
     /** The other player, by name online and by side otherwise. */
     opponent: String,
-    souls: List<SoulView>,
+    souls: List<WaitingSoul>,
     chosen: Int?,
     trial: GameSession?,
     checking: Boolean,
@@ -301,7 +297,7 @@ fun InfernoScreen(
     }
 
     if (ended != null) {
-        val won = (ended as? Outcome.Checkmate)?.winner == side || (ended as? Outcome.Resignation)?.winner == side
+        val won = ended.winnerOrNull == side
         AlertDialog(
             onDismissRequest = onLeave,
             confirmButton = { TextButton(onClick = onLeave) { Text("Back to the board") } },
@@ -362,7 +358,7 @@ private fun HellClock(seconds: Int, running: Boolean, opponent: String) {
 
 /** A taken piece, with a pip for each trial: lit once passed. */
 @Composable
-private fun SoulChip(soul: SoulView, selected: Boolean, onClick: () -> Unit) {
+private fun SoulChip(soul: WaitingSoul, selected: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         enabled = !soul.free,

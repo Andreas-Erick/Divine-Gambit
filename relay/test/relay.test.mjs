@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   CODE_ALPHABET,
@@ -141,4 +142,17 @@ test("invitationPage escapes XSS vectors, blocks javascript: URLs, and sets stri
   assert.ok(!html.includes("javascript:alert"));
   assert.ok(html.includes(escapeHtml(xssName)));
   assert.ok(html.includes("23456-789AB"));
+});
+
+// Cases shared with the app's tests, so the two sets of rules agree.
+const vectors = JSON.parse(readFileSync(new URL("./vectors.json", import.meta.url), "utf8"));
+
+test("shared vectors: game codes", () => {
+  for (const code of vectors.codes.valid) assert.equal(validCode(code), true, code);
+  for (const code of vectors.codes.invalid) assert.equal(validCode(code), false, code);
+});
+
+test("shared vectors: player names", () => {
+  for (const [name, expected] of vectors.names.valid) assert.equal(validName(name), expected, JSON.stringify(name));
+  for (const name of vectors.names.invalid) assert.equal(validName(name), null, JSON.stringify(name));
 });

@@ -59,14 +59,17 @@ data class Ticket(
 
         /**
          * The game code in [text]: typed in, with or without dashes and spaces, or at the end
-         * of a pasted invitation link.
+         * of a pasted invitation link. Null unless it's [CODE_LENGTH] characters of [CODE_ALPHABET].
          */
         fun parseCode(text: String): String? =
             text.trim().substringAfterLast("/join/").trimEnd('/').filter { it.isLetterOrDigit() }.uppercase()
-                .takeIf { it.length == CODE_LENGTH }
+                .takeIf { code -> code.length == CODE_LENGTH && code.all { it in CODE_ALPHABET } }
 
         /** Codes are long enough not to be guessed, since knowing one lets you take the free seat. */
         const val CODE_LENGTH = 10
+
+        /** The characters the relay makes codes of: no 0, 1, I, L or O, which are easily mistaken for each other. */
+        const val CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 
         /** Longest name a player can give, as the relay allows. */
         const val MAX_NAME_LENGTH = 20
