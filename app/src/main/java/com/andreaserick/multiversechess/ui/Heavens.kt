@@ -60,14 +60,21 @@ fun Heavens(light: () -> Offset?, fork: () -> Float?, modifier: Modifier = Modif
     }
     val rayPath = remember { Path() }
     val timelinePath = remember { Path() }
-    // Each part on its own layer: the timeline only moves when the card does.
+    // Each part on its own layer, drawn again only when what it shows changes: the sky, the rays and
+    // the golden spheres when the title moves, the timeline when the card does, and only the
+    // travelling, twinkling and breathing parts on every frame.
+    Canvas(modifier.graphicsLayer()) {
+        val u = size.width / 412f
+        val c = light() ?: Offset(size.width / 2, size.height * 0.235f)
+        drawSky(c, u)
+        drawSpheres(c, u, 0f, gold = true)
+        drawRays(c, u, rays, rayPath)
+    }
     Canvas(modifier.graphicsLayer()) {
         val u = size.width / 412f
         val c = light() ?: Offset(size.width / 2, size.height * 0.235f)
         val t = time.floatValue
-        drawSky(c, u)
-        drawSpheres(c, u, t)
-        drawRays(c, u, rays, rayPath)
+        drawSpheres(c, u, t, gold = false)
         drawLight(c, u, t)
         drawStars(stars, t)
     }
@@ -107,9 +114,10 @@ private fun clearOfTitle(p: Offset, c: Offset, u: Float): Float {
 
 /**
  * Dante's nine spheres: tilted rings around the light, most of them made of stars that travel
- * slowly along them, every third a fine line of gold.
+ * slowly along them, every third a fine line of gold. Draws the [gold] lines (which keep still) or
+ * the stars (which move with [t]).
  */
-private fun DrawScope.drawSpheres(c: Offset, u: Float, t: Float) {
+private fun DrawScope.drawSpheres(c: Offset, u: Float, t: Float, gold: Boolean) {
     for (i in 1..9) {
         val r = (22f + i * i * 4.6f + i * 10f) * u
         val tilt = Math.toRadians(-8.0 + i * 1.5).toFloat()
@@ -121,7 +129,8 @@ private fun DrawScope.drawSpheres(c: Offset, u: Float, t: Float) {
             return Offset(c.x + x * ct - y * st, c.y + x * st + y * ct)
         }
         val alpha = 0.85f - i * 0.06f
-        if (i % 3 == 0) {
+        if ((i % 3 == 0) != gold) continue
+        if (gold) {
             // A line of gold, drawn in short pieces so each can fade near the title.
             val pieces = 120
             for (k in 0 until pieces) {

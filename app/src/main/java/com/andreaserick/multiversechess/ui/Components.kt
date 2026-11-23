@@ -1,8 +1,20 @@
 package com.andreaserick.multiversechess.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
@@ -16,12 +28,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.Dp
@@ -31,6 +48,24 @@ import com.andreaserick.multiversechess.engine.Side
 private val PillShape = RoundedCornerShape(50)
 private val PillPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp)
 
+/** The outline of every secondary control: a faint line of gold, like the cards' edge. */
+private val controlBorder: BorderStroke @Composable get() = BorderStroke(1.dp, Palette.cardEdge)
+
+/**
+ * Presses in slightly while held, like a key, for buttons that share [interaction]. Applied in
+ * the draw phase, so it never recomposes; still when animations are off.
+ */
+@Composable
+internal fun Modifier.pressScale(interaction: InteractionSource): Modifier {
+    val pressed by interaction.collectIsPressedAsState()
+    val reduced = LocalReducedMotion.current
+    val scale by animateFloatAsState(if (pressed && !reduced) 0.975f else 1f, tween(90), label = "press")
+    return graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
+
 /** The main call to action: a filled gold pill. */
 @Composable
 fun PrimaryPill(
@@ -39,9 +74,10 @@ fun PrimaryPill(
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.pressScale(interaction),
         enabled = enabled,
         shape = PillShape,
         contentPadding = PillPadding,
@@ -50,7 +86,8 @@ fun PrimaryPill(
             disabledContainerColor = Palette.accent.copy(alpha = 0.22f),
             disabledContentColor = Palette.ink.copy(alpha = 0.45f),
         ),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+        interactionSource = interaction,
         content = content,
     )
 }
@@ -63,13 +100,15 @@ fun SecondaryPill(
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.pressScale(interaction),
         enabled = enabled,
         shape = PillShape,
         contentPadding = PillPadding,
-        border = BorderStroke(1.5.dp, if (enabled) Palette.ink.copy(alpha = 0.7f) else Palette.ink.copy(alpha = 0.2f)),
+        interactionSource = interaction,
+        border = if (enabled) controlBorder else BorderStroke(1.dp, Palette.cardEdge.copy(alpha = 0.35f)),
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = Palette.card,
             contentColor = Palette.ink,
@@ -102,7 +141,7 @@ fun RoundIconButton(
         shape = CircleShape,
         color = if (selected) Palette.accent else Palette.card,
         contentColor = tint,
-        border = BorderStroke(1.dp, if (selected) Palette.accent else Palette.cardEdge),
+        border = if (selected) BorderStroke(1.dp, Palette.accent) else controlBorder,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(icon, contentDescription, tint = tint)
@@ -181,4 +220,26 @@ fun SlabCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
             content = content,
         )
     }
+}
+
+/** A confirm button for something that can't be taken back: resigning, discarding, deleting. */
+@Composable
+fun DestructiveTextButton(text: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(text) }
+}
+
+/**
+ * Shows [content] for [text] while there is one, expanding in and folding away. The last text
+ * stays for the folding, rather than vanishing first and leaving an empty box to close.
+ */
+@Composable
+fun LingeringText(text: String?, content: @Composable (String) -> Unit) {
+    val last = remember { arrayOf(text.orEmpty()) }
+    if (text != null) last[0] = text
+    val reduced = LocalReducedMotion.current
+    AnimatedVisibility(
+        visible = text != null,
+        enter = if (reduced) EnterTransition.None else expandVertically() + fadeIn(),
+        exit = if (reduced) ExitTransition.None else shrinkVertically(tween(140)) + fadeOut(tween(110)),
+    ) { content(last[0]) }
 }

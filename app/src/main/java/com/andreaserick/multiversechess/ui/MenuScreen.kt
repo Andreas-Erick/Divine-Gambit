@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -196,18 +197,21 @@ fun MenuScreen(
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         @Composable
                         fun variantRow() = SettingRow("Variant", variant.description) {
-                            SecondaryPill(onClick = { showVariants = true }) { Text(variant.displayName) }
+                            SecondaryPill(onClick = { showVariants = true }) { Text(variant.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         }
 
                         @Composable
                         fun timelinesRow() = SettingRow("Timelines", "How many each player may create.") {
-                            SecondaryPill(onClick = { showLimits = true }) { Text(limitLabel(timelineLimit)) }
+                            SecondaryPill(onClick = { showLimits = true }) { Text(limitLabel(timelineLimit), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         }
 
                         @Composable
-                        fun infernoRow(note: String) = SettingRow("Inferno", "Taken pieces go to the Inferno. Solve puzzles there, while the game goes on, to win them back.$note") {
-                            Switch(checked = inferno, onCheckedChange = { inferno = it })
-                        }
+                        fun infernoRow(note: String) = ToggleRow(
+                            "Inferno",
+                            "Taken pieces go to the Inferno. Solve puzzles there, while the game goes on, to win them back.$note",
+                            checked = inferno,
+                            onCheckedChange = { inferno = it },
+                        )
 
                         when (shown) {
                             MenuPage.HOME -> {
@@ -251,7 +255,7 @@ fun MenuScreen(
                                 variantRow()
                                 timelinesRow()
                                 SettingRow("Opponent", if (againstAi) "A language model, choosing among legal turns." else "The built-in computer.") {
-                                    SecondaryPill(onClick = { showOpponents = true }, modifier = Modifier.widthIn(max = 170.dp)) {
+                                    SecondaryPill(onClick = { showOpponents = true }) {
                                         Text(if (againstAi) aiName.orEmpty() else "Computer", maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                 }
@@ -261,7 +265,8 @@ fun MenuScreen(
                                     onClick = { onStart(GameMode(computerSide = Side.BLACK, variant = variant, timelineLimit = timelineLimit, aiOpponent = againstAi, inferno = inferno)) },
                                     modifier = Modifier.fillMaxWidth(),
                                 ) { Text("Play as White") }
-                                PrimaryPill(
+                                // One gold call to action; the other side is the quieter choice.
+                                SecondaryPill(
                                     onClick = { onStart(GameMode(computerSide = Side.WHITE, variant = variant, timelineLimit = timelineLimit, aiOpponent = againstAi, inferno = inferno)) },
                                     modifier = Modifier.fillMaxWidth(),
                                 ) { Text("Play as Black") }
@@ -294,10 +299,10 @@ fun MenuScreen(
         AlertDialog(
             onDismissRequest = { confirmDiscard = false },
             confirmButton = {
-                TextButton(onClick = {
+                DestructiveTextButton("Discard") {
                     confirmDiscard = false
                     onDiscard()
-                }) { Text("Discard") }
+                }
             },
             dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Keep it") } },
             title = { Text("Discard this game?") },
@@ -309,10 +314,10 @@ fun MenuScreen(
         AlertDialog(
             onDismissRequest = { confirmDiscardOnline = false },
             confirmButton = {
-                TextButton(onClick = {
+                DestructiveTextButton("Forget it") {
                     confirmDiscardOnline = false
                     onDiscardOnline()
-                }) { Text("Forget it") }
+                }
             },
             dismissButton = { TextButton(onClick = { confirmDiscardOnline = false }) { Text("Keep it") } },
             title = { Text("Forget this online game?") },
@@ -462,7 +467,10 @@ private fun PageHeader(title: String, onBack: () -> Unit) {
     }
 }
 
-/** A setting: its name and what it does, with [control] to change it at the end. */
+/**
+ * A setting: its name and what it does, with [control] to change it at the end. The control is
+ * capped in width, so a long choice is shortened rather than squeezing the description away.
+ */
 @Composable
 private fun SettingRow(title: String, description: String, control: @Composable () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -471,7 +479,26 @@ private fun SettingRow(title: String, description: String, control: @Composable 
             Text(description, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
         }
         Spacer(Modifier.width(12.dp))
-        control()
+        Box(Modifier.widthIn(max = 156.dp)) { control() }
+    }
+}
+
+/** A setting that's on or off: the whole row is one switch, named by its title for screen readers. */
+@Composable
+private fun ToggleRow(title: String, description: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 
@@ -491,7 +518,8 @@ private fun InviteDialog(
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         title = { Text("Invite a friend") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Scrolls, so the choice of side stays in reach with the keyboard up or in landscape.
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     "You'll get a link to send to your friend, to play on their own phone. " +
                         "${variant.displayName}, ${limitLabel(timelineLimit).lowercase()}${if (inferno) ", with the Inferno" else ""}, as chosen under Multiplayer.",
@@ -501,7 +529,7 @@ private fun InviteDialog(
                 PrimaryPill(onClick = { valid?.let { onInvite(Side.WHITE, it) } }, enabled = valid != null, modifier = Modifier.fillMaxWidth()) {
                     Text("I play White")
                 }
-                PrimaryPill(onClick = { valid?.let { onInvite(Side.BLACK, it) } }, enabled = valid != null, modifier = Modifier.fillMaxWidth()) {
+                SecondaryPill(onClick = { valid?.let { onInvite(Side.BLACK, it) } }, enabled = valid != null, modifier = Modifier.fillMaxWidth()) {
                     Text("I play Black")
                 }
             }
@@ -547,7 +575,7 @@ private fun OpponentDialog(aiName: String?, againstAi: Boolean, onChoose: (Boole
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         title = { Text("Opponent") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 val options = listOfNotNull(
                     Triple(false, "Computer", "The built-in engine: looks two turns ahead, plays solidly."),
                     aiName?.let { Triple(true, it, "A language model, set up in AI opponent. Chooses among the engine's legal turns, and talks.") },
@@ -563,7 +591,7 @@ private fun OpponentDialog(aiName: String?, againstAi: Boolean, onChoose: (Boole
                     ) {
                         RadioButton(selected = ai == againstAi, onClick = null)
                         Column(Modifier.padding(start = 12.dp)) {
-                            Text(label, style = MaterialTheme.typography.titleSmall)
+                            Text(label, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(detail, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
                         }
                     }

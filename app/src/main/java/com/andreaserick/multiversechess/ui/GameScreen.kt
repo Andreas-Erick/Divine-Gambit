@@ -1,25 +1,32 @@
 package com.andreaserick.multiversechess.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -58,8 +65,10 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.GameKind
 import com.andreaserick.multiversechess.engine.GameSession
@@ -69,6 +78,7 @@ import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Puzzle
 import com.andreaserick.multiversechess.engine.Side
 import com.andreaserick.multiversechess.engine.WaitingSoul
+import com.andreaserick.multiversechess.engine.winnerOrNull
 import com.andreaserick.multiversechess.online.OnlineStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -107,6 +117,8 @@ fun GameScreen(
     onEnterInferno: (Int?, Offset?) -> Unit = { _, _ -> },
     /** Where the way into the Inferno is, for the portal to open from. */
     onInfernoPlaced: (Offset) -> Unit = {},
+    /** Another screen (the Inferno) is in front: this one keeps still, with no dialogs and no Back. */
+    covered: Boolean = false,
 ) {
     val camera = remember { CameraState() }
     val scope = rememberCoroutineScope()
@@ -117,6 +129,8 @@ fun GameScreen(
     var showHint by remember { mutableStateOf(false) }
     var confirmSolution by remember { mutableStateOf(false) }
     var dismissedOutcome by remember { mutableStateOf<Outcome?>(null) }
+    // A result set aside comes back if the game goes on and ends the same way again.
+    LaunchedEffect(session.outcome) { if (session.outcome == Outcome.Ongoing) dismissedOutcome = null }
     var slice by remember { mutableStateOf<SliceView?>(null) }
     var choosingSoul by remember { mutableStateOf(false) }
     var soulChosen by remember { mutableStateOf(false) }
@@ -160,9 +174,10 @@ fun GameScreen(
         slice?.let { camera.frame(state.sliceArea(it, anchor), TIMELINE_MIN_BOARD) }
     }
 
-    BackHandler(enabled = slice != null) { slice = null }
+    BackHandler(enabled = slice != null && !covered) { slice = null }
 
-    Box(
+    var topBarHeight by remember { mutableIntStateOf(0) }
+    BoxWithConstraints(
         modifier
             .fillMaxSize()
             .onPreviewKeyEvent { event ->
@@ -183,6 +198,7 @@ fun GameScreen(
                 }
             },
     ) {
+        val cardMaxHeight = maxHeight * 0.55f
         MultiverseView(session, camera, onTap, Modifier.fillMaxSize(), slice)
 
         // Top: back, title and tools, floating over the multiverse on a band of the background that
@@ -190,7 +206,10 @@ fun GameScreen(
         Row(
             Modifier
                 .fillMaxWidth()
-                .onSizeChanged { camera.coveredTop = it.height.toFloat() }
+                .onSizeChanged {
+                    camera.coveredTop = it.height.toFloat()
+                    topBarHeight = it.height
+                }
                 .background(
                     Brush.verticalGradient(
                         0f to Palette.background.copy(alpha = 0.97f),
@@ -198,7 +217,7 @@ fun GameScreen(
                         1f to Palette.background.copy(alpha = 0f),
                     ),
                 )
-                .statusBarsPadding()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                 .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 28.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -264,11 +283,13 @@ fun GameScreen(
 
         // Below the tools: zoom out to the whole multiverse, or keep only the selected piece's
         // timeline (History) or moment (Parallel).
+        // Placed under the top bar as it is measured, so a title in large text never runs into it.
         Column(
             Modifier
                 .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 68.dp, end = 12.dp),
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                .padding(end = 12.dp)
+                .offset { IntOffset(0, (topBarHeight - 28.dp.roundToPx() + 12.dp.roundToPx()).coerceAtLeast(0)) },
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             RoundIconButton(OverviewIcon, "Show the whole multiverse", {
@@ -295,32 +316,34 @@ fun GameScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .onSizeChanged { camera.coveredBottom = it.height.toFloat() + 40f }
-                .navigationBarsPadding()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .padding(12.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            SlabCard(Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
+            // At most a little over half the screen: the news scrolls, and the turn's buttons stay in reach.
+            SlabCard(Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = cardMaxHeight)) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatusLine(session, thinking || sending, online, aiName)
-                    online?.let { OnlineNote(it, session) }
-                    AnimatedVisibility(infernoNotice != null) {
-                        Text(infernoNotice.orEmpty(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Palette.gold)
-                    }
-                    if (session.mode.inferno && ongoing) {
-                        InfernoBar(infernoSouls, hellClosed, onInfernoPlaced) {
-                            // With more than one piece to seek, the player chooses first.
-                            if (infernoSouls.count { !it.free } > 1) choosingSoul = true else onEnterInferno(null, null)
+                    Column(
+                        Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        StatusLine(session, thinking || sending, online, aiName)
+                        online?.let { OnlineNote(it, session) }
+                        LingeringText(infernoNotice) {
+                            Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Palette.gold)
                         }
-                    }
-                    aiRemark?.let {
-                        Text(it, style = MaterialTheme.typography.bodyMedium, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = Palette.ink)
-                    }
-                    AnimatedVisibility(session.message != null) {
-                        Text(
-                            session.message.orEmpty(),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                        )
+                        if (session.mode.inferno && ongoing) {
+                            InfernoBar(infernoSouls, hellClosed, onInfernoPlaced) {
+                                // With more than one piece to seek, the player chooses first.
+                                if (infernoSouls.count { !it.free } > 1) choosingSoul = true else onEnterInferno(null, null)
+                            }
+                        }
+                        LingeringText(aiRemark) {
+                            Text(it, style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic, color = Palette.ink)
+                        }
+                        LingeringText(session.message) {
+                            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                        }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         SecondaryPill(onClick = onUndo, enabled = session.previous != null && !sending) { Text("Undo") }
@@ -367,7 +390,7 @@ fun GameScreen(
             onDismissRequest = { showHint = false },
             confirmButton = { TextButton(onClick = { showHint = false }) { Text("Got it") } },
             title = { Text("Hint") },
-            text = { Text(puzzle.hint) },
+            text = { Text(puzzle.hint, Modifier.verticalScroll(rememberScrollState())) },
         )
     }
 
@@ -417,10 +440,10 @@ fun GameScreen(
         AlertDialog(
             onDismissRequest = { confirmResign = false },
             confirmButton = {
-                TextButton(onClick = {
+                DestructiveTextButton("Resign") {
                     confirmResign = false
                     onResign()
-                }) { Text("Resign") }
+                }
             },
             dismissButton = { TextButton(onClick = { confirmResign = false }) { Text("Keep playing") } },
             title = { Text("Resign this game?") },
@@ -428,8 +451,10 @@ fun GameScreen(
     }
 
     val outcome = session.outcome
-    if (outcome != Outcome.Ongoing && outcome != dismissedOutcome) {
+    if (outcome != Outcome.Ongoing && outcome != dismissedOutcome && !covered) {
         val solved = puzzle != null
+        // A win for someone at this device: the puzzle solved, the player's side, or in pass and play either side.
+        val won = solved || outcome.winnerOrNull.let { it != null && (session.mode.localSide == null || it == session.mode.localSide) }
         AlertDialog(
             onDismissRequest = { dismissedOutcome = outcome },
             confirmButton = {
@@ -441,9 +466,9 @@ fun GameScreen(
             },
             dismissButton = { TextButton(onClick = { dismissedOutcome = outcome }) { Text("View board") } },
             icon = {
-                Box(Modifier.size(52.dp).background(if (outcome == Outcome.Stalemate) Palette.inkSoft else Palette.gold, CircleShape), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(52.dp).background(if (won) Palette.gold else Palette.inkSoft, CircleShape), contentAlignment = Alignment.Center) {
                     Icon(
-                        if (outcome is Outcome.Checkmate) Icons.Filled.Check else Icons.Filled.Close,
+                        if (won) Icons.Filled.Check else Icons.Filled.Close,
                         contentDescription = null,
                         tint = Palette.onGold,
                         modifier = Modifier.size(30.dp),
@@ -477,7 +502,7 @@ private fun StatusLine(session: GameSession, thinking: Boolean, online: OnlineSt
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(headline(session, thinking, online, aiName), style = MaterialTheme.typography.titleMedium)
-            Text(detail(session, online.names()), style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft)
+            Text(detail(session, online.names()), style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TABULAR_NUMS), color = Palette.inkSoft)
         }
         if (session.outcome == Outcome.Ongoing && state.threats().isNotEmpty()) {
             Text(
