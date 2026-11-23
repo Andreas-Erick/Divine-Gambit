@@ -2,6 +2,7 @@
 
 # Divine Gambit (Android)
 
+[![CI](https://github.com/Andreas-Erick/Divine-Gambit/actions/workflows/ci.yml/badge.svg)](https://github.com/Andreas-Erick/Divine-Gambit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-e8c77a.svg)](LICENSE)
 [![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-2fa79a.svg)](app/build.gradle.kts)
 [![Kotlin & Compose](https://img.shields.io/badge/Kotlin%202.4-Jetpack%20Compose-6e7fa6.svg)](gradle/libs.versions.toml)
@@ -34,6 +35,7 @@ game's code or assets.
 * [Variants](#variants)
 * [Puzzles](#puzzles)
 * [How the rules are checked](#how-the-rules-are-checked)
+* [Architecture](#architecture)
 * [Building](#building)
 * [Known simplifications](#known-simplifications)
 * [License](#license)
@@ -203,11 +205,18 @@ claim a checkmate that isn't one.
 
 **AI opponent** (at the bottom of the menu) connects a language model, in one of three ways:
 
-| | What you need | Notes |
-| --- | --- | --- |
-| **Gemini** | A free API key from [Google AI Studio](https://aistudio.google.com/apikey). | The app suggests the newest "Flash" model. The key is stored encrypted with a key that never leaves the phone. Positions are sent to Google. |
-| **A model on your computer** | [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com), serving on your network (in LM Studio: Developer › start the server, and turn on *Serve on Local Network*; for Ollama, `OLLAMA_HOST=0.0.0.0`). | Enter the computer's address, e.g. `http://192.168.1.20:1234`, and pick a model. Android asks once to allow access to your local network. |
-| **A model on this phone** | A download: Gemma 4 E2B (2.6 GB, plays and designs best) or Qwen3 0.6B (613 MB, quick but weak). | Runs offline with Google's LiteRT-LM. Needs a 64-bit phone and plenty of free memory. |
+* **Gemini.** You need a free API key from
+  [Google AI Studio](https://aistudio.google.com/apikey). The app suggests the newest "Flash"
+  model. The key is stored encrypted with a key that never leaves the phone. Positions are sent to
+  Google.
+* **A model on your computer.** You need [LM Studio](https://lmstudio.ai) or
+  [Ollama](https://ollama.com), serving on your network (in LM Studio: Developer › start the
+  server, and turn on *Serve on Local Network*; for Ollama, `OLLAMA_HOST=0.0.0.0`). Enter the
+  computer's address, e.g. `http://192.168.1.20:1234`, and pick a model. Android asks once to allow
+  access to your local network.
+* **A model on this phone.** A download: Gemma 4 E2B (2.6 GB, plays and designs best) or Qwen3
+  0.6B (613 MB, quick but weak). It runs offline with Google's LiteRT-LM, and needs a 64-bit phone
+  and plenty of free memory.
 
 Then choose it as the **Opponent** under **Singleplayer** in the menu. The engine finds the most promising legal turns and
 the model picks one of them, with a sentence about it, so it never breaks the rules; whether it
@@ -342,72 +351,76 @@ en passant, promotion, the fairy pieces, every puzzle, the session and undo logi
 player, boundary/fuzz invariants, and online games: replaying them, and refusing moves a player
 isn't allowed to send.
 
-### Architecture & key trade-offs
+## Architecture
 
 ```mermaid
-flowchart LR
-    subgraph App[":app (Android / Jetpack Compose)"]
-        UI["MultiverseView & Screens\n(Canvas + Material 3)"]
-        VM["GameViewModel\n(Coroutines, Clock, Storage)"]
-        AI["Opponent & AI Adapters\n(Engine / Gemini / LAN Server / LiteRT-LM)"]
-        RC["RelayClient\n(OkHttp + WebSocket)"]
-    end
+flowchart TD
+    UI["Screens and MultiverseView<br>(Compose)"]
+    VM["GameViewModel<br>(files, threads)"]
+    AI["Opponent, LanguageModel<br>(Gemini, LAN, LiteRT-LM)"]
+    RC["RelayClient<br>(OkHttp WebSocket)"]
+    EN[":engine<br>rules, search, puzzles,<br>sessions, online events"]
+    DO["relay/<br>Durable Object per game"]
 
-    subgraph Engine[":engine (Pure JVM Kotlin)"]
-        GS["Immutable GameState & GameSession"]
-        SY["OnlineSync & InfernoProgress"]
-        TW["TurnWalker & FixedBoardsSearch"]
-        CP["ComputerPlayer & PuzzleGenerator"]
-    end
-
-    subgraph Cloud["relay/ (Cloudflare Worker)"]
-        DO["Room Durable Object\n(Ordered Event Log)"]
-    end
-
-    UI -->|Pos taps / commands| VM
-    VM -->|Immutable updates| GS
-    VM -->|Event delivery & trials| SY
-    VM -->|Background coroutines| TW
-    VM -->|Shortlist & draft check| CP
-    VM <-->|Constrained prompts| AI
-    VM <-->|Signed seat events| RC
-    RC <-->|HTTPS / WSS| DO
+    UI --> VM
+    VM --> EN
+    VM --> AI
+    AI --> EN
+    VM --> RC
+    RC <--> DO
 ```
 
-* **Headless immutable rule kernel (`:engine`):** Every board, timeline, move search, puzzle solver,
-  and online event verifier lives in plain JVM Kotlin with zero Android dependencies, making
-  hundred-thousand-position fuzzing fast and deterministic.
-* **Incremental 4D check detection:** Because moves only append new boards and never mutate past
-  ones, `isInCheckAfter` inspects only attack rays intersecting newly created boards rather than
-  rescanning the whole multiverse.
-* **Dumb relay, smart peers (`relay/`):** The Cloudflare Durable Object orders and stamps events by
-  seat without knowing chess rules; both devices independently replay every move and verify claimed
-  checkmates or stalemates.
-* **Engine-guarded language models:** AI opponents choose by index from `ComputerPlayer.shortlist`
-  and AI-authored puzzles must pass `PuzzleDrafts` + `PuzzleSolver` before reaching the board, so a
-  hallucinating model can never make an illegal move or present an unsolvable puzzle.
+* **`:engine`** is plain Kotlin on the JVM, with no Android dependencies. Every rule is there:
+  boards and timelines, move generation, the turn search, check and checkmate, the computer
+  player, puzzles, sessions and undo, Inferno progress, and online events. Its states are
+  immutable, so undo, replays and parallel search share them safely.
+* **`:app`** draws the multiverse, keeps games on the device, runs searches off the main thread,
+  and connects the engine to the relay and to language models. It depends on `:engine`, never the
+  other way round.
+* **`relay/`** keeps each online game's events in order and stamps who sent them. It doesn't know
+  chess.
+
+* **Goals:** rules that are right in every position, including ones nobody would set up by hand;
+  play that works offline; online play with no accounts, on Cloudflare's free plan.
+* **Non-goals:** a strong engine (it's a sparring partner), rules checked on a server, accounts or
+  rankings.
+
+### Design decisions
+
+| Decision | Trade-off | ADR |
+| --- | --- | --- |
+| The rules live in a plain JVM module | `GameViewModel` isn't unit-tested | [2](docs/adr/0002-the-rules-live-in-a-plain-jvm-module.md) |
+| The relay orders events; the phones check them | A cheater can spoil a game, not win it | [3](docs/adr/0003-the-relay-orders-events-and-the-phones-check-them.md) |
+| Models choose from the engine's turns | An AI plays no better than the shortlist | [4](docs/adr/0004-language-models-choose-from-the-engines-turns.md) |
+| Inferno progress is kept beside the game | Saved and synced on its own | [1](docs/adr/0001-inferno-progress-belongs-to-the-device.md) |
+
+**Adding an AI provider** doesn't touch the game: implement `LanguageModel`
+(`app/.../ai/LanguageModel.kt`), add an `AiProvider` and return the model from `AiStore.model`, and
+give it its fields in `AiSettingsScreen`. `Opponent` and the engine's shortlist do the rest, so a
+new provider can't break the rules either.
 
 ## Building
 
 ### Quickstart (CLI)
 
-* **Prerequisites:** JDK 17+ (or the Java runtime bundled with Android Studio Ladybug+), Android SDK
+* **Prerequisites:** JDK 17+ (or the Java runtime bundled with Android Studio), Android SDK
   (API 37), and Node.js 20+ (optional, for the `relay/` worker).
 
 ```bash
-# Run pure JVM rule-engine & fuzz tests
+# Everything CI runs for the app: the engine's tests,
+# the app's unit tests and lint, and a debug APK
+./gradlew verify
+
+# Only the rules (quick, no Android SDK needed)
 ./gradlew :engine:test
 
-# Run Android unit tests, Lint checks, and assemble a debug APK
-./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-
-# Run relay protocol & security tests
+# The relay's tests
 npm --prefix relay test
 ```
 
 ### Android Studio
 
-1. Open the repository root in **Android Studio** (Ladybug or newer) and let Gradle sync.
+1. Open the repository root in a current **Android Studio** and let Gradle sync.
    It uses AGP 9.2, Kotlin 2.4 and Jetpack Compose, with Gradle 9.4.1 through the wrapper
    (which runs on the Java 25 runtime bundled with current Android Studio).
 2. Run the `app` configuration on a device or emulator (Android 7.0 / API 24 or newer).
@@ -420,21 +433,14 @@ Online games go through the relay in `relay/`, a Cloudflare Worker; its address 
 `gradle.properties`, and a build without one leaves out online play. To run your own relay, or one
 on your computer for debug builds, see [relay/README.md](relay/README.md).
 
-The rules live in the `engine` module, plain Kotlin with no Android dependencies, so they can be
-tested quickly on the JVM:
-
-```
-./gradlew :engine:test
-```
-
 | Path | What it contains |
 | --- | --- |
 | `engine/` | Game rules: multiverse state, move generation, turn search, check and checkmate, computer player, variants, puzzles, session and undo logic, Inferno trial progress, and online game events and their delivery. Unit-tested. |
 | `app/` | Android app: Compose UI that draws the multiverse, handles navigation and taps, runs the computer on a background thread, connects online games to the relay, and talks to language models (Gemini, LM Studio/Ollama, or LiteRT-LM on the phone). |
+| `docs/adr/` | Architecture decision records: what was decided, and why. |
 | `docs/icon/` | The script that draws the launcher icon. |
 | `relay/` | Cloudflare Worker that online games meet through: it keeps each game's turns in order and passes them between the two phones. |
 | `docs/screenshots/` | The screenshots in this README. |
-
 
 ## Known simplifications
 

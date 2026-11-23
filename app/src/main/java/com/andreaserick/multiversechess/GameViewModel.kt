@@ -10,16 +10,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.andreaserick.multiversechess.ai.AiException
 import com.andreaserick.multiversechess.ai.AiGames
-import com.andreaserick.multiversechess.ai.AiSettings
-import com.andreaserick.multiversechess.ai.AiStore
-import com.andreaserick.multiversechess.ai.ChatMessage
-import com.andreaserick.multiversechess.ai.DeviceModel
-import com.andreaserick.multiversechess.ai.DeviceModels
-import com.andreaserick.multiversechess.ai.GeminiModel
-import com.andreaserick.multiversechess.ai.LanguageModel
+import com.andreaserick.multiversechess.ai.AiSetup
 import com.andreaserick.multiversechess.ai.Opponent
 import com.andreaserick.multiversechess.ai.OnDeviceModel
-import com.andreaserick.multiversechess.ai.ServerModel
 import com.andreaserick.multiversechess.engine.GameMode
 import com.andreaserick.multiversechess.engine.GameSession
 import com.andreaserick.multiversechess.engine.InfernoProgress
@@ -314,7 +307,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         recordSolved(previous, next)
         watchInferno(previous, next)
         save(next)
-        if (next.isComputerTurn) playOpponent(next, Opponent.of(next, aiModel))
+        if (next.isComputerTurn) playOpponent(next, Opponent.of(next, ai.model))
     }
 
     /** The computer's side plays its turn; it can take a while, and Undo or leaving the game abandons it. */
@@ -628,14 +621,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     // AI: a language model to play against, and to design puzzles.
 
-    private val aiStore = AiStore(application)
-
-    /** The player's AI choice. */
-    var aiSettings by mutableStateOf(aiStore.load())
-        private set
-
-    /** The language model to use, if one is set up. */
-    val aiModel: LanguageModel? get() = aiStore.model(aiSettings)
+    /** The language model set up to play and design puzzles, and its settings screen's state. */
+    val ai = AiSetup(application, viewModelScope)
 
     /** What the AI said with its last turn, shown under the status. */
     var aiRemark by mutableStateOf<String?>(null)
@@ -646,121 +633,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openAiSettings() {
         showingAiSettings = true
-    }
-
-    fun saveAiSettings(settings: AiSettings) {
-        if (settings.deviceModel != aiSettings.deviceModel || settings.provider != aiSettings.provider) {
-            viewModelScope.launch { OnDeviceModel.release() }
-        }
-        aiSettings = settings
-        aiStore.save(settings)
-    }
-
-    /** The answer to a short test message, or what went wrong; null while waiting. */
-    var aiTest by mutableStateOf<Result<String>?>(null)
-        private set
-
-    /** Waiting for the answer to a test message. */
-    var aiTesting by mutableStateOf(false)
-        private set
-    private var aiTestJob: Job? = null
-
-    /** Sends [settings]' model a short message, to check it works. */
-    fun testAi(settings: AiSettings) {
-        val model = aiStore.model(settings) ?: return
-        aiTestJob?.cancel()
-        aiTest = null
-        aiTesting = true
-        aiTestJob = viewModelScope.launch {
-            try {
-                aiTest = try {
-                    Result.success(model.chat("You are a friendly chess player. Answer in one short sentence.", listOf(ChatMessage(false, "Say hello to your opponent."))))
-                } catch (e: AiException) {
-                    Result.failure(e)
-                }
-            } finally {
-                aiTesting = false
-            }
-        }
-    }
-
-    /** Forgets the test's answer, and stops waiting for one (the settings it was for have changed). */
-    fun clearAiTest() {
-        aiTestJob?.cancel()
-        aiTest = null
-        aiTesting = false
-    }
-
-    /** Models offered by the Gemini API or a server, for the settings; or why they couldn't be listed. */
-    var aiModels by mutableStateOf<Result<List<String>>?>(null)
-        private set
-
-    fun listAiModels(settings: AiSettings) {
-        aiModels = null
-        viewModelScope.launch {
-            aiModels = try {
-                Result.success(
-                    when (settings.provider) {
-                        com.andreaserick.multiversechess.ai.AiProvider.GEMINI -> GeminiModel.models(settings.geminiKey)
-                        else -> ServerModel.models(settings.serverUrl, settings.serverKey.ifBlank { null })
-                    },
-                )
-            } catch (e: AiException) {
-                Result.failure(e)
-            }
-        }
-    }
-
-    /** On-device models downloaded (by file name). */
-    var installedModels by mutableStateOf(installed())
-        private set
-
-    private fun installed(): Set<String> = aiStore.modelsDir.listFiles { file -> file.name.endsWith(".litertlm") }?.map { it.name }?.toSet().orEmpty()
-
-    /** Downloads in progress: bytes so far (null while checking the file), by file name. */
-    var downloads by mutableStateOf<Map<String, Long?>>(emptyMap())
-        private set
-
-    /** Why a download failed, by file name. */
-    var downloadErrors by mutableStateOf<Map<String, String>>(emptyMap())
-        private set
-    private val downloadJobs = HashMap<String, Job>()
-
-    fun download(model: DeviceModel) {
-        if (model.file in downloads) return
-        downloads = downloads + (model.file to 0L)
-        downloadErrors = downloadErrors - model.file
-        downloadJobs[model.file] = viewModelScope.launch {
-            try {
-                DeviceModels.download(model, aiStore.modelsDir) { done ->
-                    viewModelScope.launch { if (model.file in downloads) downloads = downloads + (model.file to done) }
-                }
-                installedModels = installed()
-                // A first model downloaded is the one to use.
-                if (aiSettings.deviceModel.isBlank()) saveAiSettings(aiSettings.copy(deviceModel = model.file))
-            } catch (e: IOException) {
-                downloadErrors = downloadErrors + (model.file to (e.message ?: "The download failed."))
-            } finally {
-                downloads = downloads - model.file
-                downloadJobs -= model.file
-            }
-        }
-    }
-
-    fun cancelDownload(model: DeviceModel) {
-        downloadJobs[model.file]?.cancel()
-    }
-
-    fun deleteModel(model: DeviceModel) {
-        viewModelScope.launch {
-            OnDeviceModel.release()
-            withContext(Dispatchers.IO) {
-                File(aiStore.modelsDir, model.file).delete()
-                File(aiStore.modelsDir, model.file + ".part").delete()
-            }
-            installedModels = installed()
-            if (aiSettings.deviceModel == model.file) saveAiSettings(aiSettings.copy(deviceModel = installedModels.firstOrNull().orEmpty()))
-        }
     }
 
     /** What designing an AI puzzle is doing now; null when not designing. */
@@ -780,7 +652,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Has the AI design a puzzle, optionally on a [theme]; it's kept with the generated ones, and opened. */
     fun designPuzzle(theme: String?) {
-        val model = aiModel ?: return
+        val model = ai.model ?: return
         if (designing != null) return
         designFailed = null
         designing = "${model.name} is designing a puzzle…"
@@ -1077,8 +949,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         connectJob?.cancel()
         generateJob?.cancel()
         designJob?.cancel()
-        aiTestJob?.cancel()
-        downloadJobs.values.forEach { it.cancel() }
         leaveOnline()
         closeInferno()
         OnDeviceModel.closeIdle()

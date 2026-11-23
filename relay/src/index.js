@@ -171,9 +171,7 @@ export class Room extends DurableObject {
 
     // A player has one connection: a new one replaces any left over from before.
     for (const old of this.ctx.getWebSockets(seat)) {
-      try {
-        old.close(4000, "Replaced by a newer connection");
-      } catch {}
+      closeQuietly(old, 4000, "Replaced by a newer connection");
     }
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server, [seat]);
@@ -198,9 +196,7 @@ export class Room extends DurableObject {
 
   async webSocketMessage(ws, data) {
     if (this.flooding(ws) || typeof data !== "string" || data.length > MAX_EVENT_LENGTH + 200) {
-      try {
-        ws.close(1008, "Too many or too large messages");
-      } catch {}
+      closeQuietly(ws, 1008, "Too many or too large messages");
       return;
     }
     const parsed = validEventMessage(data);
@@ -234,16 +230,12 @@ export class Room extends DurableObject {
     const seat = this.ctx.getTags(ws)[0];
     const stillHere = this.ctx.getWebSockets(seat).some((other) => other !== ws);
     if (!stillHere) this.broadcast({ type: "presence", opponent: false }, seat === "host" ? "guest" : "host");
-    try {
-      ws.close(code === 1005 || code === 1006 ? 1000 : code, "Bye");
-    } catch {}
+    closeQuietly(ws, code === 1005 || code === 1006 ? 1000 : code, "Bye");
   }
 
   async alarm() {
     for (const ws of this.ctx.getWebSockets()) {
-      try {
-        ws.close(4001, "The game has expired");
-      } catch {}
+      closeQuietly(ws, 4001, "The game has expired");
     }
     await this.ctx.storage.deleteAll();
   }
@@ -263,7 +255,9 @@ export class Room extends DurableObject {
     for (const ws of seat ? this.ctx.getWebSockets(seat) : this.ctx.getWebSockets()) {
       try {
         ws.send(text);
-      } catch {}
+      } catch {
+        // The socket is already closing; its player catches up from the stored events on reconnect.
+      }
     }
   }
 
@@ -289,4 +283,16 @@ function room(env, code) {
 
 function error(status, message, extraHeaders = {}) {
   return Response.json({ error: message }, { status, headers: { "x-content-type-options": "nosniff", ...extraHeaders } });
+}
+
+/**
+ * Closes [ws], which may already be closed or closing: then close() throws, and there is nothing
+ * left to do, since every event is stored and replayed to a player when they reconnect.
+ */
+function closeQuietly(ws, code, reason) {
+  try {
+    ws.close(code, reason);
+  } catch {
+    // Already closed.
+  }
 }

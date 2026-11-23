@@ -141,7 +141,7 @@ private fun GameBoard(
         session = session,
         thinking = viewModel.thinking,
         online = viewModel.online,
-        aiName = viewModel.aiModel?.name?.takeIf { session.mode.aiOpponent },
+        aiName = viewModel.ai.model?.name?.takeIf { session.mode.aiOpponent },
         aiRemark = viewModel.aiRemark,
         nextPuzzle = viewModel.nextPuzzle,
         onTap = viewModel::tap,
@@ -316,7 +316,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
                 canGenerate = viewModel.canGenerate,
                 generating = viewModel.generating,
                 generateFailed = viewModel.generateFailed,
-                aiName = viewModel.aiModel?.name,
+                aiName = viewModel.ai.model?.name,
                 designing = viewModel.designing,
                 designFailed = viewModel.designFailed,
                 onDesign = viewModel::designPuzzle,
@@ -340,7 +340,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
             onContinueOnline = viewModel::continueOnline,
             onDiscardOnline = viewModel::discardOnline,
             playerName = viewModel.playerName,
-            aiName = viewModel.aiModel?.name,
+            aiName = viewModel.ai.model?.name,
             onAiSettings = viewModel::openAiSettings,
             onInvite = viewModel::inviteFriend,
             onJoin = viewModel::joinFriend,
@@ -355,22 +355,22 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
             BackHandler { viewModel.back() }
             AiSettingsScreen(
                 AiSettingsState(
-                    settings = viewModel.aiSettings,
+                    settings = viewModel.ai.settings,
                     onChange = { settings ->
-                        viewModel.clearAiTest()
-                        viewModel.saveAiSettings(settings)
+                        viewModel.ai.clearTest()
+                        viewModel.ai.save(settings)
                     },
-                    test = viewModel.aiTest,
-                    testing = viewModel.aiTesting,
-                    onTest = { viewModel.testAi(viewModel.aiSettings) },
-                    models = viewModel.aiModels,
-                    onListModels = { viewModel.listAiModels(viewModel.aiSettings) },
-                    installed = viewModel.installedModels,
-                    downloads = viewModel.downloads,
-                    downloadErrors = viewModel.downloadErrors,
-                    onDownload = viewModel::download,
-                    onCancelDownload = viewModel::cancelDownload,
-                    onDelete = viewModel::deleteModel,
+                    test = viewModel.ai.test,
+                    testing = viewModel.ai.testing,
+                    onTest = { viewModel.ai.test(viewModel.ai.settings) },
+                    models = viewModel.ai.models,
+                    onListModels = { viewModel.ai.listModels(viewModel.ai.settings) },
+                    installed = viewModel.ai.installed,
+                    downloads = viewModel.ai.downloads,
+                    downloadErrors = viewModel.ai.downloadErrors,
+                    onDownload = viewModel.ai::download,
+                    onCancelDownload = viewModel.ai::cancelDownload,
+                    onDelete = viewModel.ai::delete,
                 ),
                 onBack = viewModel::back,
                 modifier = modifier,

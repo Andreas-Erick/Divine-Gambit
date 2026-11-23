@@ -1,0 +1,12 @@
+# Text is stored with LF line endings; Windows scripts keep CRLF.
+* text=auto eol=lf
+*.bat text eol=crlf
+
+# Binary files: never touch their line endings or diff them as text.
+*.jar binary
+*.png binary
+*.ttf binary
+
+# Generated: left out of diffs and GitHub's language statistics.
+relay/package-lock.json linguist-generated=true
+app/src/main/assets/licenses/** linguist-vendored=true
