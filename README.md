@@ -348,13 +348,14 @@ isn't allowed to send.
 flowchart LR
     subgraph App[":app (Android / Jetpack Compose)"]
         UI["MultiverseView & Screens\n(Canvas + Material 3)"]
-        VM["GameViewModel\n(Session, Inferno Clock, Saves)"]
-        AI["AI Adapters\n(Gemini / LAN Server / LiteRT-LM)"]
+        VM["GameViewModel\n(Coroutines, Clock, Storage)"]
+        AI["Opponent & AI Adapters\n(Engine / Gemini / LAN Server / LiteRT-LM)"]
         RC["RelayClient\n(OkHttp + WebSocket)"]
     end
 
     subgraph Engine[":engine (Pure JVM Kotlin)"]
         GS["Immutable GameState & GameSession"]
+        SY["OnlineSync & InfernoProgress"]
         TW["TurnWalker & FixedBoardsSearch"]
         CP["ComputerPlayer & PuzzleGenerator"]
     end
@@ -365,6 +366,7 @@ flowchart LR
 
     UI -->|Pos taps / commands| VM
     VM -->|Immutable updates| GS
+    VM -->|Event delivery & trials| SY
     VM -->|Background coroutines| TW
     VM -->|Shortlist & draft check| CP
     VM <-->|Constrained prompts| AI
@@ -427,7 +429,7 @@ tested quickly on the JVM:
 
 | Path | What it contains |
 | --- | --- |
-| `engine/` | Game rules: multiverse state, move generation, turn search, check and checkmate, computer player, variants, puzzles, session and undo logic, and online game events. Unit-tested. |
+| `engine/` | Game rules: multiverse state, move generation, turn search, check and checkmate, computer player, variants, puzzles, session and undo logic, Inferno trial progress, and online game events and their delivery. Unit-tested. |
 | `app/` | Android app: Compose UI that draws the multiverse, handles navigation and taps, runs the computer on a background thread, connects online games to the relay, and talks to language models (Gemini, LM Studio/Ollama, or LiteRT-LM on the phone). |
 | `docs/icon/` | The script that draws the launcher icon. |
 | `relay/` | Cloudflare Worker that online games meet through: it keeps each game's turns in order and passes them between the two phones. |

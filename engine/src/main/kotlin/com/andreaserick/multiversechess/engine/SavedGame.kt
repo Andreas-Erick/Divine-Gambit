@@ -3,15 +3,18 @@ package com.andreaserick.multiversechess.engine
 /**
  * Saves a game as plain text and restores it. What's kept: the mode, the position at the start of
  * the current turn, the moves made in it so far (replayed on restore, so they can still be undone),
- * the move log, the last turn's moves, the pieces in the Inferno and how the game stands. Undo
- * history from earlier turns isn't kept.
+ * the move log, the last turn's moves, the pieces in the Inferno with the trials passed for them,
+ * and how the game stands. Undo history from earlier turns isn't kept.
  *
  * Puzzles aren't saved: they're short, and restart from their own position.
  */
 object SavedGame {
     private const val VERSION = "multiverse-chess 1"
 
-    fun encode(session: GameSession): String {
+    /** A game read back: the session, and the player's [InfernoProgress] in it (time there starts afresh). */
+    data class Saved(val game: GameSession, val trials: InfernoProgress)
+
+    fun encode(session: GameSession, trials: InfernoProgress = InfernoProgress()): String {
         require(session.mode.puzzle == null) { "Puzzles aren't saved" }
         val startSession = turnStart(session)
         val start = startSession.state
@@ -34,19 +37,23 @@ object SavedGame {
             // As at the start of the turn: replaying its moves takes the pieces they take again.
             for (soul in startSession.souls) appendLine("soul ${soul.type.letter} ${soul.side.name} ${if (soul.freed) 1 else 0}")
             startSession.returned?.let { appendLine("returned ${encode(it)}") }
+            for ((index, count) in trials.solved.entries.sortedBy { it.key }) appendLine("trial $index $count")
             // The log without the current turn's lines, which replaying its moves adds back.
             for (line in session.log.dropLast(turn.size)) appendLine("log $line")
         }
     }
 
     /** The game saved in [text], or null if it can't be read (another version, or damaged). */
-    fun decode(text: String): GameSession? = try {
+    fun decode(text: String): GameSession? = load(text)?.game
+
+    /** The game saved in [text] with the trials passed in it, or null if it can't be read. */
+    fun load(text: String): Saved? = try {
         read(text.lines().filter { it.isNotBlank() })
     } catch (_: RuntimeException) {
         null
     }
 
-    private fun read(lines: List<String>): GameSession? {
+    private fun read(lines: List<String>): Saved? {
         if (lines.firstOrNull() != VERSION) return null
         var mode: GameMode? = null
         var outcome: Outcome = Outcome.Ongoing
@@ -59,6 +66,7 @@ object SavedGame {
         val log = ArrayList<String>()
         val souls = ArrayList<Soul>()
         var returned: Pos? = null
+        val trials = HashMap<Int, Int>()
         for (line in lines.drop(1)) {
             val key = line.substringBefore(' ')
             val rest = line.substringAfter(' ', "")
@@ -108,6 +116,13 @@ object SavedGame {
                     require(words.size == 3 && words[0].length == 1 && (words[2] == "0" || words[2] == "1")) { "Malformed soul line" }
                     souls += Soul(PieceType.entries.first { it.letter == words[0][0] }, Side.valueOf(words[1]), words[2] == "1")
                 }
+                "trial" -> {
+                    require(words.size == 2) { "Malformed trial line" }
+                    val index = words[0].toInt()
+                    val count = words[1].toInt()
+                    require(index >= 0 && count >= 0) { "Negative trial count" }
+                    trials[index] = count
+                }
                 "returned" -> {
                     require(words.size == 1) { "Malformed returned line" }
                     returned = decodePos(words[0])
@@ -136,7 +151,7 @@ object SavedGame {
             val move = session.state.legalMovesFrom(from).firstOrNull { it.to == to } ?: return null
             session = session.play(move)
         }
-        return session
+        return Saved(session, InfernoProgress(trials.filterKeys { it < session.souls.size }))
     }
 
     private fun turnStart(session: GameSession): GameSession {

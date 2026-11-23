@@ -7,6 +7,7 @@ lifecycle = "2.11.0"
 composeBom = "2026.06.01"
 junitJupiter = "5.11.3"
 junitPlatform = "1.11.3"
+orgJson = "20240303"
 okhttp = "5.5.0"
 litertlm = "0.18.0"
 
@@ -28,6 +29,8 @@ litertlm = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", v
 kotlin-test-junit5 = { group = "org.jetbrains.kotlin", name = "kotlin-test-junit5", version.ref = "kotlin" }
 junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter", version.ref = "junitJupiter" }
 junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher", version.ref = "junitPlatform" }
+# The real org.json for unit tests: android.jar only has stubs of it.
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

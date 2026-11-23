@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.andreaserick.multiversechess.engine.WaitingSoul
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -69,7 +70,7 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun SoulScroll(
-    souls: List<SoulView>,
+    souls: List<WaitingSoul>,
     onChoose: (Int, Offset?) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -211,7 +212,7 @@ fun SoulScroll(
 
 /** One soul on the scroll: the piece, its name, and a mark for each trial, filled once passed. */
 @Composable
-private fun SoulLine(soul: SoulView, modifier: Modifier, onClick: () -> Unit) {
+private fun SoulLine(soul: WaitingSoul, modifier: Modifier, onClick: () -> Unit) {
     Row(
         modifier
             .fillMaxWidth()

@@ -22,6 +22,20 @@ sealed interface OnlineEvent {
     data class Free(val index: Int, val at: Pos) : OnlineEvent
 
     companion object {
+        /**
+         * The event an online game sends when an action on this device takes it from [from] to
+         * [next]: a submitted turn, or an ending without one (a resignation, or no legal turn).
+         * Null when nothing needs sending (a selection, a move tried, an undo within the turn),
+         * or the game isn't online.
+         */
+        fun between(from: GameSession, next: GameSession): OnlineEvent? = when {
+            from.mode.onlineSide == null -> null
+            next.state.sideToMove != from.state.sideToMove ->
+                Turn(from.state.turnMoves.map { it.from to it.to }, next.outcome, next.undecided)
+            from.outcome == Outcome.Ongoing && next.outcome != Outcome.Ongoing -> End(next.outcome)
+            else -> null
+        }
+
         /** E.g. `turn ongoing 0 0,0,4,1>0,0,4,3`, `end resignation:WHITE` or `free 2 0,4,2,0`. */
         fun encode(event: OnlineEvent): String = when (event) {
             is Turn -> buildString {

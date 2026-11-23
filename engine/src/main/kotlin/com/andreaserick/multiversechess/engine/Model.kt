@@ -128,3 +128,11 @@ sealed interface Outcome {
     data object Stalemate : Outcome
     data class Resignation(val winner: Side) : Outcome
 }
+
+/** The side that won, or null for a stalemate or a game still going. */
+val Outcome.winnerOrNull: Side?
+    get() = when (this) {
+        is Outcome.Checkmate -> winner
+        is Outcome.Resignation -> winner
+        Outcome.Ongoing, Outcome.Stalemate -> null
+    }

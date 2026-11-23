@@ -32,9 +32,10 @@ object AiGames {
 
     /**
      * Has [model] choose a turn for the side to move in [state], among the engine's shortlist of
-     * legal turns. If the model fails or gives no usable answer, the engine's favourite is played.
+     * legal turns. If the model fails or gives no usable answer, the engine's favourite is played;
+     * so it is if a reply takes longer than [timeoutMillis].
      */
-    suspend fun turn(model: LanguageModel, state: GameState): AiTurn {
+    suspend fun turn(model: LanguageModel, state: GameState, timeoutMillis: Long = TURN_TIMEOUT_MILLIS): AiTurn {
         val choices = withContext(Dispatchers.Default) {
             val job = coroutineContext.job
             ComputerPlayer().shortlist(state, CHOICES) { !job.isActive }
@@ -44,13 +45,13 @@ object AiGames {
         val prompt = AiText.choosePrompt(state, choices)
         return try {
             val messages = mutableListOf(ChatMessage(false, prompt))
-            var reply = withTimeout(TURN_TIMEOUT_MILLIS) { model.chat(AiText.PLAYER_SYSTEM, messages) }
+            var reply = withTimeout(timeoutMillis) { model.chat(AiText.PLAYER_SYSTEM, messages) }
             var choice = AiText.parseChoice(reply, choices.size)
             if (choice == null) {
                 // Once more, asking just for the number.
                 messages += ChatMessage(true, reply)
                 messages += ChatMessage(false, "Please answer with just a number from 1 to ${choices.size}, then your sentence.")
-                reply = withTimeout(TURN_TIMEOUT_MILLIS) { model.chat(AiText.PLAYER_SYSTEM, messages) }
+                reply = withTimeout(timeoutMillis) { model.chat(AiText.PLAYER_SYSTEM, messages) }
                 choice = AiText.parseChoice(reply, choices.size)
             }
             if (choice == null) {

@@ -61,12 +61,14 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.andreaserick.multiversechess.engine.GameKind
 import com.andreaserick.multiversechess.engine.GameSession
 import com.andreaserick.multiversechess.engine.Notation
 import com.andreaserick.multiversechess.engine.Outcome
 import com.andreaserick.multiversechess.engine.Pos
 import com.andreaserick.multiversechess.engine.Puzzle
 import com.andreaserick.multiversechess.engine.Side
+import com.andreaserick.multiversechess.engine.WaitingSoul
 import com.andreaserick.multiversechess.online.OnlineStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -93,7 +95,7 @@ fun GameScreen(
     modifier: Modifier = Modifier,
     onDeselect: () -> Unit = {},
     /** With the Inferno rule: the player's pieces waiting there. */
-    infernoSouls: List<SoulView> = emptyList(),
+    infernoSouls: List<WaitingSoul> = emptyList(),
     /** Why the Inferno can't be entered now, or null if it can. */
     hellClosed: String? = null,
     /** News from the Inferno, such as a piece returning. */
@@ -210,11 +212,11 @@ fun GameScreen(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    when {
-                        puzzle != null -> "Puzzle · checkmate in one turn"
-                        online != null -> "Online · ${online.nameOf(online.ticket.side)} vs ${online.opponentName}"
-                        session.mode.computerSide != null -> "vs ${aiName ?: "computer"}"
-                        else -> "Pass and play"
+                    when (session.mode.kind) {
+                        GameKind.PUZZLE -> "Puzzle · checkmate in one turn"
+                        GameKind.ONLINE -> online?.let { "Online · ${it.nameOf(it.ticket.side)} vs ${it.opponentName}" } ?: "Online"
+                        GameKind.COMPUTER, GameKind.AI -> "vs ${aiName ?: "computer"}"
+                        GameKind.PASS_AND_PLAY -> "Pass and play"
                     } + if (session.mode.inferno) " · Inferno" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = Palette.inkSoft,
@@ -247,7 +249,7 @@ fun GameScreen(
                         DropdownMenuItem(text = { Text("Move list") }, onClick = { showMenu = false; showLog = true })
                         DropdownMenuItem(
                             text = { Text("No legal turn?") },
-                            enabled = ongoing && !thinking && !sending && !session.isComputerTurn && !session.isRemoteTurn,
+                            enabled = session.isPlayersTurn && !thinking && !sending,
                             onClick = { showMenu = false; onClaimNoLegalTurn() },
                         )
                         DropdownMenuItem(
@@ -329,7 +331,7 @@ fun GameScreen(
                         PrimaryPill(
                             onClick = onSubmit,
                             // After the game, Submit explains why the moves tried can't be played.
-                            enabled = !thinking && !sending && !session.isComputerTurn && !session.isRemoteTurn &&
+                            enabled = !thinking && !sending && !session.isOpponentsTurn &&
                                 ((ongoing && state.canSubmit) || (session.isExploring && state.turnMoves.isNotEmpty())),
                             modifier = Modifier.weight(1f),
                         ) { Text("Submit", maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -496,7 +498,7 @@ private const val SCROLL_BURNS_MILLIS = 1_600L
 
 /** The way into the Inferno, with the pieces waiting there and their trials. */
 @Composable
-private fun InfernoBar(souls: List<SoulView>, closed: String?, onPlaced: (Offset) -> Unit, onEnter: () -> Unit) {
+private fun InfernoBar(souls: List<WaitingSoul>, closed: String?, onPlaced: (Offset) -> Unit, onEnter: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(FlameIcon, contentDescription = null, tint = Palette.flame, modifier = Modifier.size(22.dp))
@@ -553,7 +555,7 @@ private fun headline(session: GameSession, thinking: Boolean, online: OnlineStat
         thinking && session.mode.puzzle != null -> "Checking your answer…"
         thinking && !session.isComputerTurn -> "Checking the position…"
         thinking -> "${aiName ?: side} is thinking…"
-        online != null || (session.mode.computerSide != null && session.mode.computerSide != session.state.sideToMove) -> "Your turn · $side"
+        session.mode.localSide == session.state.sideToMove -> "Your turn · $side"
         else -> "$side to move"
     }
 }

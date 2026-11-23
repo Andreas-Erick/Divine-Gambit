@@ -107,5 +107,6 @@ dependencies {
 
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.junit.jupiter)
+    testImplementation(libs.org.json)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
