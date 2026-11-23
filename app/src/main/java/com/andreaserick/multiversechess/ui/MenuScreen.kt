@@ -99,6 +99,8 @@ fun MenuScreen(
     onInvite: (Variant, Int?, Side, String, Boolean) -> Unit,
     onJoin: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /** A newcomer who has never ended a turn: offer a guided first game. */
+    firstSteps: Boolean = false,
 ) {
     var page by rememberSaveable { mutableStateOf(MenuPage.HOME) }
     var showRules by remember { mutableStateOf(false) }
@@ -151,7 +153,7 @@ fun MenuScreen(
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "Move through time. Branch the timelines.\nDescend, and win back the fallen.",
+                "Chess, with time travel and parallel timelines.\nDescend, and win back the fallen.",
                 style = MaterialTheme.typography.bodyMedium,
                 fontStyle = FontStyle.Italic,
                 color = Palette.inkSoft,
@@ -226,7 +228,14 @@ fun MenuScreen(
                                     HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.cardEdge)
                                 }
                                 val nothingToContinue = resumable == null && !(canPlayOnline && resumableOnline != null)
-                                MenuChoice("Singleplayer", "Against the computer or an AI.", primary = nothingToContinue) { page = MenuPage.SINGLE }
+                                val guided = firstSteps && nothingToContinue
+                                if (guided) {
+                                    // Standard chess against the computer, as White: nothing to choose first.
+                                    MenuChoice("Play your first game", "New to this? The game shows you each step.", primary = true) {
+                                        onStart(GameMode(computerSide = Side.BLACK, timelineLimit = GameSession.DEFAULT_TIMELINE_LIMIT))
+                                    }
+                                }
+                                MenuChoice("Singleplayer", "Against the computer or an AI.", primary = nothingToContinue && !guided) { page = MenuPage.SINGLE }
                                 MenuChoice(
                                     "Multiplayer",
                                     if (canPlayOnline) "Pass and play on this phone, or a friend online." else "Pass and play on this phone.",

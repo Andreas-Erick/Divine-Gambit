@@ -3,6 +3,7 @@ package com.andreaserick.multiversechess
 import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
@@ -90,6 +91,39 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     var resumable by mutableStateOf<GameSession?>(null)
         private set
 
+    /**
+     * Turns a newcomer still gets a tip line for, on the board; it counts down as they end turns,
+     * and is 0 once they've hidden the tips. Players from before the tips existed start at 0.
+     */
+    var tipTurnsLeft by mutableIntStateOf(
+        prefs.getInt(KEY_TIPS, if (solvedPuzzles.isNotEmpty() || prefs.contains(KEY_NAME)) 0 else TIP_TURNS),
+    )
+        private set
+
+    /** Whether this player has never ended a turn: the menu offers them a guided first game. */
+    var firstSteps by mutableStateOf(!prefs.getBoolean(KEY_PLAYED, false) && tipTurnsLeft == TIP_TURNS)
+        private set
+
+    fun hideTips() {
+        tipTurnsLeft = 0
+        prefs.edit { putInt(KEY_TIPS, 0) }
+    }
+
+    fun showTipsAgain() {
+        tipTurnsLeft = TIP_TURNS
+        prefs.edit { putInt(KEY_TIPS, TIP_TURNS) }
+    }
+
+    /** A turn ended at this device: one fewer tip turn, and no more first-game offer. */
+    private fun countTurnEnded() {
+        if (tipTurnsLeft > 0) tipTurnsLeft--
+        firstSteps = false
+        prefs.edit {
+            putInt(KEY_TIPS, tipTurnsLeft)
+            putBoolean(KEY_PLAYED, true)
+        }
+    }
+
     init {
         viewModelScope.launch {
             val cid = AppLog.newCorrelationId()
@@ -105,6 +139,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
             val ms = (System.nanoTime() - started) / 1_000_000
             if (saved != null) AppLog.info("storage", "load_game_ok", cid, durationMs = ms, context = mapOf("outcome" to saved.game.outcome.javaClass.simpleName))
+            // A game saved from before the tips existed: this player knows their way around.
+            if (saved != null && !prefs.contains(KEY_TIPS)) {
+                tipTurnsLeft = 0
+                firstSteps = false
+            }
             if (session == null && saved != null && saved.game.isResumable) {
                 resumable = saved.game
                 resumableTrials = saved.trials
@@ -262,6 +301,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun submit() {
         infernoNotice = null
         val current = session?.takeIf { !sync.sending } ?: return
+        if (current.outcome == Outcome.Ongoing && current.state.canSubmit) countTurnEnded()
         runInBackground(current) { session, _ -> session.submit() }
     }
 
@@ -789,7 +829,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         404 -> "There's no game with this code. Check it, or ask for a new invitation: games are forgotten after a month."
         409 -> "This game already has two players."
         null -> "Couldn't reach the server. Check your internet connection."
-        else -> "The server refused: ${e.message}"
+        else -> "The game server had a problem. Try again in a minute."
     }
 
     /** Enters the online game [ticket] has a seat in, and stays connected while it's open. */
@@ -898,7 +938,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
             is OnlineSync.Received.Played -> {
                 sync = result.sync
-                // A search still running (No legal turn?) is about a position that's gone.
+                // A search still running (Stuck? Check for a legal turn) is about a position that's gone.
                 stopJob()
                 session = result.game
                 watchInferno(current, result.game)
@@ -961,6 +1001,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         /** Trials passed in an online game, by its code. */
         const val KEY_TRIALS = "trials:"
         const val KEY_NAME = "player_name"
+        const val KEY_TIPS = "tip_turns_left"
+        const val KEY_PLAYED = "ended_a_turn"
+
+        /** How many of a newcomer's turns get the tip line. */
+        const val TIP_TURNS = 6
         const val RECONNECT_MIN_MILLIS = 1_000L
         const val RECONNECT_MAX_MILLIS = 15_000L
 

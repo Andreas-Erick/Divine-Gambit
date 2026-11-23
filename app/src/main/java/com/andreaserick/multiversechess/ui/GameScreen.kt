@@ -119,6 +119,10 @@ fun GameScreen(
     onInfernoPlaced: (Offset) -> Unit = {},
     /** Another screen (the Inferno) is in front: this one keeps still, with no dialogs and no Back. */
     covered: Boolean = false,
+    /** A newcomer's first turns: a line saying what to do next. */
+    tips: Boolean = false,
+    onHideTips: () -> Unit = {},
+    onShowTipsAgain: (() -> Unit)? = null,
 ) {
     val camera = remember { CameraState() }
     val scope = rememberCoroutineScope()
@@ -221,7 +225,15 @@ fun GameScreen(
                 .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 28.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onExit)
+            RoundIconButton(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                when {
+                    puzzle != null -> "Back to the puzzles"
+                    session.isResumable || session.mode.kind == GameKind.ONLINE -> "Back to the menu (your game is saved)"
+                    else -> "Back to the menu"
+                },
+                onExit,
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -267,7 +279,7 @@ fun GameScreen(
                     } else {
                         DropdownMenuItem(text = { Text("Move list") }, onClick = { showMenu = false; showLog = true })
                         DropdownMenuItem(
-                            text = { Text("No legal turn?") },
+                            text = { Text("Stuck? Check for a legal turn") },
                             enabled = session.isPlayersTurn && !thinking && !sending,
                             onClick = { showMenu = false; onClaimNoLegalTurn() },
                         )
@@ -328,6 +340,7 @@ fun GameScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         StatusLine(session, thinking || sending, online, aiName)
+                        if (tips && !thinking && !sending) tip(session)?.let { TipLine(it, onHideTips) }
                         online?.let { OnlineNote(it, session) }
                         LingeringText(infernoNotice) {
                             Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Palette.gold)
@@ -353,11 +366,11 @@ fun GameScreen(
                         }) { Text("Present") }
                         PrimaryPill(
                             onClick = onSubmit,
-                            // After the game, Submit explains why the moves tried can't be played.
+                            // After the game, End turn explains why the moves tried can't be played.
                             enabled = !thinking && !sending && !session.isOpponentsTurn &&
                                 ((ongoing && state.canSubmit) || (session.isExploring && state.turnMoves.isNotEmpty())),
                             modifier = Modifier.weight(1f),
-                        ) { Text("Submit", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        ) { Text("End turn", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
                 }
             }
@@ -383,7 +396,7 @@ fun GameScreen(
         }
     }
 
-    if (showRules) RulesDialog(onDismiss = { showRules = false })
+    if (showRules) RulesDialog(onDismiss = { showRules = false }, onShowTipsAgain = onShowTipsAgain?.takeIf { !tips })
 
     if (showHint && puzzle != null) {
         AlertDialog(
@@ -518,6 +531,47 @@ private fun StatusLine(session: GameSession, thinking: Boolean, online: OnlineSt
     }
 }
 
+/**
+ * What a newcomer should do next on this turn, or null when there's nothing for them to do. The
+ * first turns teach tapping and ending a turn; once a few turns are in, branching through time.
+ */
+private fun tip(session: GameSession): String? {
+    val state = session.state
+    if (!session.isPlayersTurn || session.isExploring) return null
+    val boards = state.mandatoryTimelines.size
+    return when {
+        session.selected != null && session.targets.isEmpty() ->
+            "This piece has nowhere to go. Tap another of your pieces."
+        session.selected != null ->
+            "Tap a marked square to move there, even on another board. Tap the piece again to put it down."
+        state.canSubmit && state.turnMoves.isNotEmpty() ->
+            "Done here. Tap End turn to let the other side play."
+        state.turnMoves.isNotEmpty() && boards == 0 -> null
+        state.turnMoves.isNotEmpty() ->
+            if (boards == 1) "One more board with a gold ring needs a move." else "$boards more boards with a gold ring need a move."
+        Notation.turnNumber(state.present) >= 3 && state.timelines.size == 1 ->
+            "Pieces can also move back to an earlier board. That starts a new timeline, a row of its own."
+        state.timelines.size > 1 ->
+            "Each row is a timeline. Move on every board with a gold ring, then End turn."
+        else -> "Tap one of your pieces to see where it can go."
+    }
+}
+
+/** A newcomer's tip, with a way to stop seeing them. */
+@Composable
+private fun TipLine(text: String, onHide: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Palette.accent.copy(alpha = 0.10f), RoundedCornerShape(12.dp))
+            .padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = Palette.ink, modifier = Modifier.weight(1f).padding(vertical = 6.dp))
+        TextButton(onClick = onHide) { Text("Hide tips") }
+    }
+}
+
 /** How long the scroll stays after a choice: as long as the descent through it takes. */
 private const val SCROLL_BURNS_MILLIS = 1_600L
 
@@ -592,12 +646,12 @@ private fun detail(session: GameSession, nameOf: (Side) -> String): String {
     if (session.outcome != Outcome.Ongoing) return outcomeText(session.outcome, nameOf)
     val state = session.state
     if (session.undecided) {
-        return "The search couldn't confirm a legal turn here. If you can't find one, choose ⋮ › No legal turn?"
+        return "The search couldn't confirm a legal turn here. If you can't find one, choose ⋮ › Stuck? Check for a legal turn."
     }
-    val parts = mutableListOf("Present: turn ${Notation.turnNumber(state.present)}")
+    val parts = mutableListOf("Turn ${Notation.turnNumber(state.present)}")
     val left = state.mandatoryTimelines.size
     when {
-        state.canSubmit -> parts += "ready to submit"
+        state.canSubmit -> parts += "ready to end your turn"
         left == 1 -> parts += "1 board to play"
         left > 1 -> parts += "$left boards to play"
     }

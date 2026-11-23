@@ -161,6 +161,9 @@ private fun GameBoard(
         onEnterInferno = onEnterInferno,
         onInfernoPlaced = onInfernoPlaced,
         covered = covered,
+        tips = viewModel.tipTurnsLeft > 0,
+        onHideTips = viewModel::hideTips,
+        onShowTipsAgain = viewModel::showTipsAgain,
     )
 }
 
@@ -345,6 +348,7 @@ private fun Screen(screen: Screen, viewModel: GameViewModel, modifier: Modifier)
             onInvite = viewModel::inviteFriend,
             onJoin = viewModel::joinFriend,
             modifier = modifier,
+            firstSteps = viewModel.firstSteps,
         )
         Screen.LOBBY -> {
             val online = viewModel.online ?: return

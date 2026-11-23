@@ -139,7 +139,7 @@ fun AiSettingsScreen(state: AiSettingsState, onBack: () -> Unit, modifier: Modif
                 onClick = { withLocalNetwork(state.onTest) },
                 enabled = settings.isReady && !testing,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (testing) "Waiting for an answer…" else "Test") }
+            ) { Text(if (testing) "Waiting for an answer…" else "Send a test message") }
             state.test?.let { result ->
                 result.fold(
                     { Text("“$it”", style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic) },
