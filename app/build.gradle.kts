@@ -36,8 +36,8 @@ android {
         applicationId = "com.andreaserick.multiversechess"
         minSdk = 24
         targetSdk = 37
-        versionCode = 14
-        versionName = "1.8.0"
+        versionCode = 15
+        versionName = "1.9.0"
         relay(relayUrl)
     }
 
