@@ -121,10 +121,12 @@ private val RULES = listOf(
         "It's chess, but pieces can also move to earlier boards, and that starts a new timeline: a " +
         "new row of boards. Tap one of your pieces, tap a marked square, and once every board with " +
         "a gold ring has a move, tap End turn. Checkmate a king on any board to win. Hold a round " +
-        "button to see what it does. The rest below is for when you want it.",
+        "button (or point at it with a mouse) to see what it does. The rest below is for when you want it.",
     "The multiverse" to
         "Each row is a timeline (teal ribbon) and each column a half-move, advancing to the right. " +
-        "Drag to pan and pinch to zoom.",
+        "Drag to pan and pinch to zoom, or zoom with a mouse wheel. With a keyboard, Enter ends your " +
+        "turn, Ctrl+Z takes back a move, P returns to the present, Esc puts a piece down, the " +
+        "arrows pan and + and - zoom.",
     "Finding your way" to
         "Tap a timeline's ribbon, or its label on the left edge, to see the whole timeline. Tap a " +
         "board that's too small to play on to zoom in on it. The Overview button (four corners) shows the whole " +
@@ -165,12 +167,12 @@ private val RULES = listOf(
         "moves to see why.",
     "AI opponent" to
         "In AI opponent (below the menu) you can connect a language model: Gemini with your API key, " +
-        "a model on your computer (LM Studio or Ollama), or one downloaded to this phone. Choose it " +
+        "a model on your computer (LM Studio or Ollama), or one downloaded to this device. Choose it " +
         "as your Opponent under Singleplayer to play it: it picks one of the legal turns the engine finds and says " +
         "something about it. Under Puzzles it can also design puzzles; the engine checks each one " +
         "really is mate in one turn, and makes one itself if the AI's don't work out.",
     "Playing a friend" to
-        "Invite a friend gives you a link to send. When your friend opens it on their phone and " +
+        "Invite a friend gives you a link to send. When your friend opens it on their phone or tablet and " +
         "gives their name, the game begins; without the app, the link shows a code they can type " +
         "under Join a friend. The names you both give are shown to each other in that game. " +
         "Undo only takes back moves you haven't submitted. If either of you leaves, the game " +
@@ -183,7 +185,7 @@ private val RULES = listOf(
         "the Inferno to switch between them. A piece that has passed its trials returns at the start of your turn, on a square " +
         "where it can't be taken straight away. While it's your turn on the board you have 90 seconds " +
         "there per turn; while your opponent thinks, the clock stops. Online, you each have your own " +
-        "Inferno, and a piece that returns appears on both phones. If the game ends while you're " +
+        "Inferno, and a piece that returns appears on both screens. If the game ends while you're " +
         "in the Inferno, you'll be told.",
     "Fairy pieces" to
         "Some variants add pieces drawn as lettered discs. S, princess: a rook or bishop move. " +

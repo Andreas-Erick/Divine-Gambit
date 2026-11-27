@@ -8,8 +8,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -64,26 +66,37 @@ fun Heavens(light: () -> Offset?, fork: () -> Float?, modifier: Modifier = Modif
     // the golden spheres when the title moves, the timeline when the card does, and only the
     // travelling, twinkling and breathing parts on every frame.
     Canvas(modifier.graphicsLayer()) {
-        val u = size.width / 412f
+        val u = heavensUnit()
         val c = light() ?: Offset(size.width / 2, size.height * 0.235f)
         drawSky(c, u)
         drawSpheres(c, u, 0f, gold = true)
         drawRays(c, u, rays, rayPath)
     }
     Canvas(modifier.graphicsLayer()) {
-        val u = size.width / 412f
+        val u = heavensUnit()
         val c = light() ?: Offset(size.width / 2, size.height * 0.235f)
         val t = time.floatValue
         drawSpheres(c, u, t, gold = false)
         drawLight(c, u, t)
         drawStars(stars, t)
     }
-    Canvas(modifier.graphicsLayer()) {
-        val u = size.width / 412f
+    // Offscreen, so the clearing around the title can erase the timeline where it passes.
+    Canvas(modifier.graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)) {
+        val u = heavensUnit()
         drawTimeline((fork() ?: (size.height * 0.84f)).coerceAtMost(size.height - 120f * u), u, timelinePath)
+        // Like the spheres and rays, the timeline fades away around the title and its line beneath,
+        // which it can cross when the title stands beside the card (a tablet held sideways).
+        light()?.let { c -> unitDisc(TITLE_CLEARING, c + Offset(0f, 40f * u), 250f * u, 120f * u, alpha = 1f, BlendMode.DstOut) }
     }
-    Canvas(modifier.graphicsLayer()) { drawWarmth(size.width / 412f, time.floatValue) }
+    Canvas(modifier.graphicsLayer()) { drawWarmth(heavensUnit(), time.floatValue) }
 }
+
+/**
+ * The heavens' unit of length: a 412 dp wide phone's width is 412 of them. A screen wider than a
+ * phone's proportions (a tablet held sideways) is measured by its height instead, so the spheres,
+ * the timeline and the warmth keep a phone's proportions rather than growing past the screen.
+ */
+private fun DrawScope.heavensUnit(): Float = min(size.width / 412f, size.height / 700f)
 
 /** A star: where (fractions of the screen), how big and bright, how fast it twinkles (0: not), and its phase. */
 private class Star(val x: Float, val y: Float, val radius: Float, val alpha: Float, val period: Float, val phase: Float)
@@ -186,19 +199,19 @@ private fun DrawScope.drawRays(c: Offset, u: Float, rays: List<Pair<Float, Float
 /** The light behind the title, breathing slowly. */
 private fun DrawScope.drawLight(c: Offset, u: Float, t: Float) {
     val breath = 0.75f + 0.25f * (0.5f + 0.5f * sin(t * 2f * PI.toFloat() / 10f))
-    drawCircle(
-        Brush.radialGradient(
-            0f to Color(0xFFFFF6DA).copy(alpha = 0.4f * breath),
-            0.25f to Color(0xFFFFE29A).copy(alpha = 0.2f * breath),
-            0.6f to Color(0xFFE8B04B).copy(alpha = 0.07f * breath),
-            1f to Color.Transparent,
-            center = c,
-            radius = 135f * u,
-        ),
-        radius = 135f * u,
-        center = c,
-    )
+    unitDisc(LIGHT, c, 135f * u, 135f * u, alpha = breath)
 }
+
+/** What erases the timeline around the title: fully at the middle, fading out at the edge. */
+private val TITLE_CLEARING = unitGradient(0f to Color.Black, 0.6f to Color.Black, 1f to Color.Transparent)
+
+/** The light's gradient, made once on a disc of radius 1 and scaled where it's drawn. */
+private val LIGHT = unitGradient(
+    0f to Color(0xFFFFF6DA).copy(alpha = 0.4f),
+    0.25f to Color(0xFFFFE29A).copy(alpha = 0.2f),
+    0.6f to Color(0xFFE8B04B).copy(alpha = 0.07f),
+    1f to Color.Transparent,
+)
 
 private fun DrawScope.drawStars(stars: List<Star>, t: Float) {
     for (star in stars) {
@@ -207,20 +220,23 @@ private fun DrawScope.drawStars(stars: List<Star>, t: Float) {
     }
 }
 
-private val WARMTH_OUTER_STOPS = arrayOf(
+/** A radial gradient on a disc of radius 1 around the origin, made once and scaled where it's drawn. */
+internal fun unitGradient(vararg stops: Pair<Float, Color>) = Brush.radialGradient(*stops, center = Offset.Zero, radius = 1f)
+
+private val WARMTH_OUTER = unitGradient(
     0f to Color(0xFFE0442B).copy(alpha = 0.55f),
     0.35f to Color(0xFFB3240F).copy(alpha = 0.32f),
     0.7f to Color(0xFF7A0E08).copy(alpha = 0.12f),
     1f to Color.Transparent,
 )
 
-private val WARMTH_CORE_STOPS = arrayOf(
+private val WARMTH_CORE = unitGradient(
     0f to Color(0xFFFF9A4A).copy(alpha = 0.45f),
     0.5f to Color(0xFFE0442B).copy(alpha = 0.15f),
     1f to Color.Transparent,
 )
 
-private val WARMTH_WAVE_STOPS = arrayOf(
+private val WARMTH_WAVE = unitGradient(
     0.35f to Color.Transparent,
     0.75f to Color(0xFFE0442B).copy(alpha = 0.16f),
     1f to Color.Transparent,
@@ -271,12 +287,12 @@ private fun DrawScope.drawWarmth(u: Float, t: Float) {
     val swell = ease((t / 6f) % 1f)
     ellipse(
         Offset(cx, size.height + 45f * u), 330f * u, (210f + 40f * swell) * u,
-        WARMTH_OUTER_STOPS,
+        WARMTH_OUTER,
         alpha = 0.8f + 0.2f * swell,
     )
     ellipse(
         Offset(cx, size.height + 30f * u), 170f * u, 90f * u,
-        WARMTH_CORE_STOPS,
+        WARMTH_CORE,
         alpha = 0.55f + 0.45f * ease((t / 3.7f) % 1f),
     )
     for (i in 0 until 3) {
@@ -284,16 +300,22 @@ private fun DrawScope.drawWarmth(u: Float, t: Float) {
         val alpha = if (p < 0.3f) p / 0.3f else 1f - (p - 0.3f) / 0.7f
         ellipse(
             Offset(cx, size.height + 35f * u), (120f + 300f * p) * u, (50f + 210f * p) * u,
-            WARMTH_WAVE_STOPS,
+            WARMTH_WAVE,
             alpha = alpha,
         )
     }
 }
 
 /** A radial gradient on an ellipse, [rx] by [ry], centered on [c]. */
-private fun DrawScope.ellipse(c: Offset, rx: Float, ry: Float, stops: Array<Pair<Float, Color>>, alpha: Float) {
-    withTransform({ scale(1f, ry / rx, pivot = c) }) {
-        drawCircle(Brush.radialGradient(*stops, center = c, radius = rx), radius = rx, center = c, alpha = alpha.coerceIn(0f, 1f))
+private fun DrawScope.ellipse(c: Offset, rx: Float, ry: Float, gradient: Brush, alpha: Float) = unitDisc(gradient, c, rx, ry, alpha)
+
+/** Draws [gradient], made on a disc of radius 1, stretched to [rx] by [ry] around [c]: no new shader each frame. */
+internal fun DrawScope.unitDisc(gradient: Brush, c: Offset, rx: Float, ry: Float, alpha: Float, blendMode: BlendMode = DrawScope.DefaultBlendMode) {
+    withTransform({
+        translate(c.x, c.y)
+        scale(rx, ry, pivot = Offset.Zero)
+    }) {
+        drawCircle(gradient, radius = 1f, center = Offset.Zero, alpha = alpha.coerceIn(0f, 1f), blendMode = blendMode)
     }
 }
 

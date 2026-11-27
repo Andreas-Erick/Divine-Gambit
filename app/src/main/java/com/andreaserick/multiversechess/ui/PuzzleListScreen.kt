@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,8 +18,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -69,13 +72,17 @@ fun PuzzleListScreen(
 ) {
     val solvedCount = puzzles.count { it.id in solved }
     Box(modifier.fillMaxSize().background(Palette.background), contentAlignment = Alignment.TopCenter) {
-        LazyColumn(
-            Modifier.widthIn(max = 560.dp).fillMaxSize().imePadding(),
+        // One column of puzzles on a phone; on a tablet two or three side by side, rather than one
+        // narrow column with empty space either side.
+        LazyVerticalGrid(
+            GridCells.Adaptive(340.dp),
+            Modifier.widthIn(max = 1120.dp).fillMaxSize().imePadding(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item {
-                Column(Modifier.statusBarsPadding().padding(top = 8.dp, bottom = 8.dp)) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column(Modifier.statusBarsPadding().padding(top = 8.dp, bottom = 8.dp).widthIn(max = 640.dp)) {
                     RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack)
                     Spacer(Modifier.size(20.dp))
                     Text("Puzzles", style = MaterialTheme.typography.headlineLarge)
@@ -105,30 +112,47 @@ fun PuzzleListScreen(
             itemsIndexed(puzzles, key = { _, p -> p.id }) { i, puzzle ->
                 PuzzleCard(i + 1, puzzle, puzzle.id in solved, next = puzzle.id == nextUp, onClick = { onOpen(puzzle) })
             }
-            item {
-                GenerateCard(
-                    builtInLeft = Puzzles.all.count { it.id !in solved },
-                    canGenerate = canGenerate,
-                    generating = generating,
-                    failed = generateFailed,
-                    onGenerate = onGenerate,
-                )
+            // The two ways to more puzzles: side by side when there's room for both, else one above the other.
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                BoxWithConstraints {
+                    val generate = @Composable { m: Modifier ->
+                        GenerateCard(
+                            builtInLeft = Puzzles.all.count { it.id !in solved },
+                            canGenerate = canGenerate,
+                            generating = generating,
+                            failed = generateFailed,
+                            onGenerate = onGenerate,
+                            modifier = m,
+                        )
+                    }
+                    val byAi = @Composable { m: Modifier -> AiPuzzleCard(aiName, designing, designFailed, onDesign, onAiSettings, onCancelDesign, m) }
+                    if (maxWidth >= 694.dp) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            generate(Modifier.weight(1f))
+                            byAi(Modifier.weight(1f))
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            generate(Modifier.fillMaxWidth())
+                            byAi(Modifier.fillMaxWidth())
+                        }
+                    }
+                }
             }
-            item { AiPuzzleCard(aiName, designing, designFailed, onDesign, onAiSettings, onCancelDesign) }
-            item { Spacer(Modifier.navigationBarsPadding()) }
+            item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.navigationBarsPadding()) }
         }
     }
 }
 
 /** Makes a new puzzle, once every built-in one is solved. */
 @Composable
-private fun GenerateCard(builtInLeft: Int, canGenerate: Boolean, generating: Boolean, failed: Boolean, onGenerate: () -> Unit) {
-    SlabCard(Modifier.fillMaxWidth()) {
+private fun GenerateCard(builtInLeft: Int, canGenerate: Boolean, generating: Boolean, failed: Boolean, onGenerate: () -> Unit, modifier: Modifier = Modifier) {
+    SlabCard(modifier) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("New puzzles", style = MaterialTheme.typography.titleMedium)
             Text(
                 when {
-                    !canGenerate -> "Solve the ${if (builtInLeft == 1) "last puzzle" else "$builtInLeft remaining puzzles"} above to unlock new ones, made for you on this phone."
+                    !canGenerate -> "Solve the ${if (builtInLeft == 1) "last puzzle" else "$builtInLeft remaining puzzles"} above to unlock new ones, made for you on this device."
                     failed -> "No puzzle turned up this time. Try again."
                     else -> "Make a fresh checkmate-in-one-turn puzzle. Every one is checked to have one or two solutions."
                 },
@@ -157,10 +181,11 @@ private fun AiPuzzleCard(
     onDesign: (String?) -> Unit,
     onAiSettings: () -> Unit,
     onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var theme by rememberSaveable { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
-    SlabCard(Modifier.fillMaxWidth()) {
+    SlabCard(modifier) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Puzzles by AI", style = MaterialTheme.typography.titleMedium)
             if (aiName == null) {

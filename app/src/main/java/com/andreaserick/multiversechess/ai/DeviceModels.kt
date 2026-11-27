@@ -32,7 +32,7 @@ object DeviceModels {
     val all = listOf(
         DeviceModel(
             name = "Gemma 4 E2B",
-            description = "Google's small open model. Plays and designs puzzles best of the two, but needs a recent phone " +
+            description = "Google's small open model. Plays and designs puzzles best of the two, but needs a recent phone or tablet " +
                 "with plenty of memory, and takes a while to answer.",
             repository = "litert-community/gemma-4-E2B-it-litert-lm",
             file = "gemma-4-E2B-it.litertlm",
@@ -41,7 +41,7 @@ object DeviceModels {
         ),
         DeviceModel(
             name = "Qwen3 0.6B",
-            description = "A tiny model: quick, and fine on most phones, but its choices are close to random and its " +
+            description = "A tiny model: quick, and fine on most devices, but its choices are close to random and its " +
                 "puzzles rarely work out.",
             repository = "litert-community/Qwen3-0.6B",
             file = "Qwen3-0.6B.litertlm",

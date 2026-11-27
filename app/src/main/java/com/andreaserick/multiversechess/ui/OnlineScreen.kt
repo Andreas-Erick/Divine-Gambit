@@ -7,6 +7,7 @@ import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -79,6 +80,9 @@ fun LobbyScreen(status: OnlineStatus, onBack: () -> Unit, modifier: Modifier = M
             style = MaterialTheme.typography.bodyMedium,
             color = Palette.inkSoft,
         )
+        // Selectable, so the code or link can be copied with a mouse into another app beside this one.
+        SelectionContainer {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             status.ticket.displayCode,
             style = MaterialTheme.typography.headlineMedium,
@@ -89,6 +93,8 @@ fun LobbyScreen(status: OnlineStatus, onBack: () -> Unit, modifier: Modifier = M
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         )
         Text(status.link, style = MaterialTheme.typography.bodySmall, color = Palette.inkSoft, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        }
+        }
         PrimaryPill(onClick = { share(context, status.link) }, modifier = Modifier.fillMaxWidth()) { Text("Share link") }
         SecondaryPill(
             onClick = {
@@ -196,7 +202,8 @@ internal fun OnlinePage(onBack: () -> Unit, modifier: Modifier, content: @Compos
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(Modifier.fillMaxWidth()) { RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack) }
+            // Lined up with the card below, which on a tablet sits in the middle rather than at the edge.
+            Box(Modifier.widthIn(max = 440.dp).fillMaxWidth()) { RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack) }
             Spacer(Modifier.height(32.dp))
             SlabCard(Modifier.widthIn(max = 440.dp).fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }

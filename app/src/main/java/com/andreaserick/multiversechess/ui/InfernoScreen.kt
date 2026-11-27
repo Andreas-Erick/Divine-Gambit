@@ -18,10 +18,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -115,6 +118,7 @@ fun InfernoScreen(
     val reducedMotion = LocalReducedMotion.current
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     val comfortableSquare = with(LocalDensity.current) { COMFORTABLE_SQUARE.toPx() }
+    val roomySquare = with(LocalDensity.current) { ROOMY_SQUARE.toPx() }
     // Seconds, for the fire and smoke; only read while drawing, paused when occluded or reduced-motion.
     val time = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(active, reducedMotion, windowFocused) {
@@ -133,7 +137,7 @@ fun InfernoScreen(
     val trialStart = trial?.state?.takeIf { it.turnMoves.isEmpty() }?.timelines
     LaunchedEffect(trial?.mode?.puzzle?.id, trialStart, camera.viewSize) {
         val state = trial?.state ?: return@LaunchedEffect
-        if (trialStart != null || !camera.initialized) camera.focus(state.focusArea(), resetZoom = true, comfortableSquare)
+        if (trialStart != null || !camera.initialized) camera.focus(state.focusArea(), resetZoom = true, comfortableSquare, maxSquare = roomySquare)
     }
     // News from the board is felt as well as read.
     LaunchedEffect(notice, ended) {
@@ -148,6 +152,13 @@ fun InfernoScreen(
             .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
     ) {
         val cardMaxHeight = maxHeight * 0.45f
+        // A little room between the card and what the camera frames above it.
+        val coveredGap = with(LocalDensity.current) { 16.dp.toPx() }
+        // Wide enough (a tablet held sideways) for the clock and the souls to share the title's row,
+        // leaving more of the height for the trial.
+        val wide = maxWidth >= 840.dp
+        // Held sideways, the trial's card sits in the bottom corner, as the board's does above.
+        val docked = wide && maxWidth > maxHeight
         InfernoDepths({ time.floatValue }, { camera.offset }, Modifier.fillMaxSize())
         if (trial != null) {
             // On a layer of its own, so the fire moving behind and in front doesn't redraw the boards.
@@ -173,10 +184,24 @@ fun InfernoScreen(
                         1f to Palette.background.copy(alpha = 0f),
                     ),
                 )
-                .statusBarsPadding()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                 .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            @Composable
+            fun clockAndSouls(modifier: Modifier) {
+                Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+                    HellClock(seconds, clockRunning, opponent, active)
+                    Spacer(Modifier.width(8.dp))
+                    Row(
+                        Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        for (soul in souls) SoulChip(soul, selected = soul.index == chosen, onClick = { onChoose(soul.index) })
+                    }
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back to the board", onLeave)
                 Spacer(Modifier.width(12.dp))
@@ -190,6 +215,10 @@ fun InfernoScreen(
                         maxLines = 2,
                     )
                 }
+                if (wide) {
+                    Spacer(Modifier.width(16.dp))
+                    clockAndSouls(Modifier.widthIn(max = 560.dp))
+                }
                 if (trial != null) {
                     Spacer(Modifier.width(8.dp))
                     RoundIconButton(
@@ -202,32 +231,22 @@ fun InfernoScreen(
                     RoundIconButton(Icons.Filled.Info, "Hint", { showHint = true })
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                HellClock(seconds, clockRunning, opponent, active)
-                Spacer(Modifier.width(8.dp))
-                Row(
-                    Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    for (soul in souls) SoulChip(soul, selected = soul.index == chosen, onClick = { onChoose(soul.index) })
-                }
-            }
+            if (!wide) clockAndSouls(Modifier.fillMaxWidth())
         }
 
         // Bottom: the trial's status and controls.
         Box(
             Modifier
-                .align(Alignment.BottomCenter)
+                .align(if (docked) Alignment.BottomEnd else Alignment.BottomCenter)
                 .fillMaxWidth()
-                .onSizeChanged { camera.coveredBottom = it.height.toFloat() + 40f }
-                .navigationBarsPadding()
+                .onSizeChanged { camera.coveredBottom = it.height.toFloat() + coveredGap }
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .padding(12.dp),
-            contentAlignment = Alignment.BottomCenter,
+            contentAlignment = if (docked) Alignment.BottomEnd else Alignment.BottomCenter,
         ) {
             // At most a little under half the screen, so the souls and the trial stay in view; the
             // news scrolls, and the buttons stay in reach.
-            SlabCard(Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = cardMaxHeight)) {
+            SlabCard(Modifier.widthIn(max = if (docked) 460.dp else 560.dp).fillMaxWidth().heightIn(max = cardMaxHeight)) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val soul = souls.firstOrNull { it.index == chosen }
                     val passed = trial?.outcome is Outcome.Checkmate

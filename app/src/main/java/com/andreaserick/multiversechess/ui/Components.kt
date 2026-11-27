@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -72,6 +73,12 @@ internal fun Modifier.pressScale(interaction: InteractionSource): Modifier {
     }
 }
 
+/**
+ * A ring of gold while a keyboard has moved focus to the control, so someone using a tablet with a
+ * keyboard can see where Tab and Enter will act; the default focus tint barely shows on these colours.
+ */
+private val focusRing: BorderStroke @Composable get() = BorderStroke(2.dp, Palette.gold)
+
 /** The main call to action: a filled gold pill. */
 @Composable
 fun PrimaryPill(
@@ -81,9 +88,11 @@ fun PrimaryPill(
     content: @Composable RowScope.() -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
     Button(
         onClick = onClick,
         modifier = modifier.pressScale(interaction),
+        border = if (focused) BorderStroke(2.dp, Palette.ink) else null,
         enabled = enabled,
         shape = PillShape,
         contentPadding = PillPadding,
@@ -107,6 +116,7 @@ fun SecondaryPill(
     content: @Composable RowScope.() -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
     OutlinedButton(
         onClick = onClick,
         modifier = modifier.pressScale(interaction),
@@ -114,7 +124,11 @@ fun SecondaryPill(
         shape = PillShape,
         contentPadding = PillPadding,
         interactionSource = interaction,
-        border = if (enabled) controlBorder else BorderStroke(1.dp, Palette.cardEdge.copy(alpha = 0.35f)),
+        border = when {
+            focused -> focusRing
+            enabled -> controlBorder
+            else -> BorderStroke(1.dp, Palette.cardEdge.copy(alpha = 0.35f))
+        },
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = Palette.card,
             contentColor = Palette.ink,
@@ -141,7 +155,9 @@ fun RoundIconButton(
         enabled -> Palette.ink
         else -> Palette.ink.copy(alpha = 0.3f)
     }
-    // Held, it says what it does: the icon alone is seldom enough for someone new.
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    // Held (or hovered with a mouse), it says what it does: the icon alone is seldom enough for someone new.
     TooltipBox(
         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
         tooltip = { PlainTooltip { Text(contentDescription) } },
@@ -155,7 +171,12 @@ fun RoundIconButton(
             shape = CircleShape,
             color = if (selected) Palette.accent else Palette.card,
             contentColor = tint,
-            border = if (selected) BorderStroke(1.dp, Palette.accent) else controlBorder,
+            border = when {
+                focused -> focusRing
+                selected -> BorderStroke(1.dp, Palette.accent)
+                else -> controlBorder
+            },
+            interactionSource = interaction,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(icon, contentDescription, tint = tint)

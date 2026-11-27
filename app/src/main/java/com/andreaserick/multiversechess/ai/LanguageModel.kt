@@ -281,7 +281,7 @@ class OnDeviceModel(
             } catch (e: AiException) {
                 throw e
             } catch (e: Exception) {
-                throw AiException("The model on this phone failed: ${e.message ?: e.javaClass.simpleName}", e)
+                throw AiException("The model on this device failed: ${e.message ?: e.javaClass.simpleName}", e)
             }
         }
     }
@@ -308,7 +308,7 @@ class OnDeviceModel(
             val free = freeMemory()
             if (free < needed) {
                 throw AiException(
-                    "There isn't enough free memory to run the model on this phone (it needs about " +
+                    "There isn't enough free memory to run the model on this device (it needs about " +
                         "${needed / 1_000_000} MB, ${free / 1_000_000} MB is free). Close other apps, or choose a smaller model.",
                 )
             }

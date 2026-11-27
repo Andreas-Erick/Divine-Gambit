@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
@@ -148,9 +149,9 @@ fun AiSettingsScreen(state: AiSettingsState, onBack: () -> Unit, modifier: Modif
             }
             Text(
                 when (settings.provider) {
-                    AiProvider.GEMINI -> "Your API key is kept encrypted on this phone. The positions of your games are sent to Google to answer."
+                    AiProvider.GEMINI -> "Your API key is kept encrypted on this device. The positions of your games are sent to Google to answer."
                     AiProvider.SERVER -> "The positions of your games are sent to your computer, and nowhere else."
-                    else -> "Everything stays on this phone, and works offline."
+                    else -> "Everything stays on this device, and works offline."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = Palette.inkSoft,
@@ -163,7 +164,7 @@ private val PROVIDERS = listOf(
     Triple(AiProvider.OFF, "Off", "Play the built-in computer only."),
     Triple(AiProvider.GEMINI, "Gemini", "Google's models, with your own API key (free to get)."),
     Triple(AiProvider.SERVER, "A model on your computer", "LM Studio or Ollama, on your network."),
-    Triple(AiProvider.ON_DEVICE, "A model on this phone", "Runs offline, once downloaded."),
+    Triple(AiProvider.ON_DEVICE, "A model on this device", "Runs offline, once downloaded."),
 )
 
 private const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
@@ -195,8 +196,9 @@ private fun ServerSettings(state: AiSettingsState, onListModels: () -> Unit) {
         label = { Text("Address") },
         placeholder = { Text("http://192.168.1.20:1234") },
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+        // On to the API key below, as the next thing to fill in.
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false, imeAction = ImeAction.Next),
+        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
         modifier = Modifier.fillMaxWidth(),
     )
     SecretField("API key (if the server needs one)", settings.serverKey) { state.onChange(settings.copy(serverKey = it.trim())) }
@@ -292,7 +294,7 @@ private fun DeviceSettings(state: AiSettingsState) {
     val settings = state.settings
     val uri = LocalUriHandler.current
     Text(
-        "Download a model to run on this phone. Models are large, and answer slowly on older phones.",
+        "Download a model to run on this device. Models are large, and answer slowly on older devices.",
         style = MaterialTheme.typography.bodySmall,
         color = Palette.inkSoft,
     )
