@@ -7,9 +7,10 @@
 [![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-2fa79a.svg)](app/build.gradle.kts)
 [![Kotlin & Compose](https://img.shields.io/badge/Kotlin%202.4-Jetpack%20Compose-6e7fa6.svg)](gradle/libs.versions.toml)
 
-Chess with time travel and parallel timelines, for Android. Send a knight two turns into the past
-and the timeline splits; play both futures at once; protect your kings in the present *and* the
-past. Play the computer, a friend on the same phone, or a friend on their own phone, anywhere. And
+Chess with time travel and parallel timelines, for Android phones and tablets. Send a knight two
+turns into the past and the timeline splits; play both futures at once; protect your kings in the
+present *and* the past. Play the computer, a friend on the same device, or a friend on their own,
+anywhere. And
 if you dare, play with the Inferno, where taken pieces can be won back.
 
 **[Download the latest APK](https://github.com/Andreas-Erick/Divine-Gambit/releases/latest)**
@@ -28,6 +29,7 @@ game's code or assets.
 
 * [Features](#features)
 * [Installing](#installing)
+* [On a tablet](#on-a-tablet)
 * [How to play](#how-to-play)
 * [Playing a friend online](#playing-a-friend-online)
 * [AI opponent](#ai-opponent)
@@ -52,9 +54,9 @@ game's code or assets.
 * **Full four-dimensional movement** for every piece, including castling, en passant, double steps
   across timelines and promotion, plus five fairy-piece variants.
 * **Several ways to play:** against the computer as either side, **pass and play** on one device,
-  **online with a friend** (send them a link, and the game opens on their phone with both your
-  names on it), or against an **AI opponent**: Gemini, a model on your computer, or one running on
-  your phone.
+  **online with a friend** (send them a link, and the game opens on their phone or tablet with both
+  your names on it), or against an **AI opponent**: Gemini, a model on your computer, or one running
+  on your device.
 * **Choose the size of the multiverse:** each player may create up to 1 to 8 timelines, or as many
   as they like.
 * **Six puzzles** that teach the core ideas, each checked by an exhaustive solver, **new puzzles
@@ -62,18 +64,43 @@ game's code or assets.
   the same way.
 * **The Inferno**, an optional rule: taken pieces go to the Inferno, and you win them back by
   solving puzzles there while the game goes on.
+* **Phones and tablets, held either way.** On a tablet held sideways the menu sits beside its
+  title and the turn controls move to the corner under your thumb; a keyboard, mouse or trackpad
+  works too.
 * **Nothing gets lost:** your game is saved as you play, **Continue game** picks it up after the app
   is closed, and an online game waits for both of you to come back.
 
 ## Installing
 
-1. On your phone (Android 7.0 or newer), open the
+1. On your phone or tablet (Android 7.0 or newer), open the
    [latest release](https://github.com/Andreas-Erick/Divine-Gambit/releases/latest) and download the
    `.apk` file.
 2. Open it, and allow installing from your browser or file manager when Android asks.
 
 A new version installs over the old one and keeps your saved game, solved puzzles and online games.
 Online play needs an internet connection; everything else works offline.
+
+## On a tablet
+
+<p align="center">
+  <img src="docs/screenshots/tablet-menu.png" width="400" alt="The menu on a tablet held sideways: Divine Gambit under the rings of the heavens on the left, the menu card with Singleplayer in gold on the right, a teal timeline branching beneath both">
+  <img src="docs/screenshots/tablet-game.png" width="400" alt="Puzzle Crossing over on a tablet held sideways: two timelines of five boards each, the two present boards ringed in gold, and the turn card in the bottom right corner">
+</p>
+<p align="center">
+  <img src="docs/screenshots/tablet-inferno.png" width="400" alt="The Inferno on a tablet held sideways: boards of ash and brick over glowing ridges, a row of flames along the bottom, the clock and the waiting pawn beside the title, and the trial card in the bottom right corner">
+  <img src="docs/screenshots/tablet-puzzles.png" width="400" alt="The puzzle list on a tablet held sideways: six puzzles in three columns, with the New puzzles and Puzzles by AI cards side by side beneath them">
+</p>
+
+The game fits a tablet held either way. Held sideways, the menu's card stands beside the title so
+every page fits, the card with **End turn** sits in the bottom corner under your right thumb
+instead of over the board, and the puzzles spread over three columns (two when held upright).
+Turning the tablet mid-game, or resizing the app beside another, keeps the board where you were
+looking.
+
+With a keyboard, **Enter** ends your turn, **Ctrl+Z** takes back a move, **P** returns to the
+present, **Esc** puts a piece down, the arrows pan and **+** and **-** zoom; a gold ring shows which
+button Tab has reached. With a mouse, the wheel zooms around the pointer, and a sideways swipe on a
+trackpad (or Shift and the wheel) pans.
 
 ## How to play
 

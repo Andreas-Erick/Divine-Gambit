@@ -122,6 +122,13 @@ class CameraState {
     var coveredTop by mutableFloatStateOf(0f)
     var coveredBottom by mutableFloatStateOf(0f)
 
+    /**
+     * A control covering only the bottom-right corner (a card docked there on a tablet held
+     * sideways), in pixels: focusing uses the space above it or beside it, whichever shows more.
+     */
+    var coveredCornerWidth by mutableFloatStateOf(0f)
+    var coveredCornerHeight by mutableFloatStateOf(0f)
+
     /** Everything drawn, in world units, so the camera can always zoom out far enough to see it all. */
     var worldBounds = Rect.Zero
 
@@ -136,10 +143,27 @@ class CameraState {
     /** Animations take this so a new one, or a finger on the screen, cancels the one running. */
     private val mutex = MutatorMutex()
 
-    private val usableHeight get() = viewSize.height - coveredTop - coveredBottom
+    /**
+     * Where an area can be shown, in pixels: between the covered top and bottom, and with a covered
+     * corner, either above it across the full width or beside it down to the bottom.
+     */
+    private val regions: List<Rect>
+        get() {
+            val width = viewSize.width.toFloat()
+            val bottom = viewSize.height - coveredBottom
+            if (coveredCornerWidth <= 0f || coveredCornerHeight <= 0f) return listOf(Rect(0f, coveredTop, width, bottom))
+            return listOf(
+                Rect(0f, coveredTop, width, bottom - coveredCornerHeight),
+                Rect(0f, coveredTop, width - coveredCornerWidth, bottom),
+            ).filter { it.width > 0f && it.height > 0f }
+        }
+
+    /** Of [regions], the one that shows [area] biggest. */
+    private fun regionFor(area: Rect, fill: Float): Rect =
+        regions.maxByOrNull { fitScale(area, fill, it) } ?: Rect(0f, 0f, viewSize.width.toFloat(), viewSize.height.toFloat())
 
     private val minScale: Float
-        get() = if (!hasSize || worldBounds.isEmpty) MIN_SCALE else min(MIN_SCALE, fitScale(worldBounds, 1f) * 0.6f)
+        get() = if (!hasSize || worldBounds.isEmpty) MIN_SCALE else min(MIN_SCALE, fitScale(worldBounds, 1f, regionFor(worldBounds, 1f)) * 0.6f)
 
     fun toWorld(screen: Offset): Offset = (screen - offset) / scale
 
@@ -178,10 +202,10 @@ class CameraState {
         }
     }
 
-    /** The scale at which [area] fills [fill] of the view's width or most of its uncovered height. */
-    private fun fitScale(area: Rect, fill: Float) = min(
-        viewSize.width * fill / (area.width + Layout.SQ),
-        usableHeight * 0.9f / (area.height + Layout.SQ * 2),
+    /** The scale at which [area] fills [fill] of [region]'s width or [heightFill] of its height. */
+    private fun fitScale(area: Rect, fill: Float, region: Rect, heightFill: Float = 0.9f) = min(
+        region.width * fill / (area.width + Layout.SQ),
+        region.height * heightFill / (area.height + Layout.SQ * 2),
     )
 
     /**
@@ -193,13 +217,22 @@ class CameraState {
      */
     suspend fun focus(area: Rect, resetZoom: Boolean = false, minSquare: Float = 0f, fallback: Rect = area, maxSquare: Float = Float.POSITIVE_INFINITY) {
         if (!hasSize) return
-        val shown = if (fitScale(area, 0.62f) * Layout.SQ < minSquare) fallback else area
+        // All of the area is shown if it fits at [minSquare] using the whole height; then it's
+        // framed with some margin, but never below [minSquare] (giving up margin instead).
+        val smallest = minSquare / Layout.SQ
+        val fitsAll = fitScale(area, 0.62f, regionFor(area, 0.62f), heightFill = 1f) >= smallest
+        val shown = if (fitsAll) area else fallback
         // A single board fills most of the width (clear of the tool buttons at the side), so its
-        // squares are big enough to aim at; several
-        // leave room around them, with neighbouring boards in sight.
+        // squares are big enough to aim at; several leave room around them, with neighbouring
+        // boards in sight.
         val single = shown.width <= Layout.BOARD + 1f
-        val fit = fitScale(shown, if (single) 0.74f else 0.62f).coerceAtMost(maxSquare / Layout.SQ).coerceIn(minScale, MAX_SCALE)
-        moveTo(shown.center, if (resetZoom || !initialized || fit < scale) fit else scale)
+        val fill = if (single) 0.74f else 0.62f
+        val region = regionFor(shown, fill)
+        val fit = fitScale(shown, fill, region)
+            .coerceAtLeast(if (fitsAll) smallest else 0f)
+            .coerceAtMost(maxSquare / Layout.SQ)
+            .coerceIn(minScale, MAX_SCALE)
+        moveTo(shown.center, if (resetZoom || !initialized || fit < scale) fit else scale, region)
     }
 
     /**
@@ -208,15 +241,17 @@ class CameraState {
      */
     suspend fun frame(area: Rect, minBoardWidth: Float = 0f) {
         if (!hasSize) return
-        val targetScale = fitScale(area, 0.92f)
+        val region = regionFor(area, 0.92f)
+        val targetScale = fitScale(area, 0.92f, region)
             .coerceAtLeast(viewSize.width * minBoardWidth / Layout.BOARD)
             .coerceIn(minScale, MAX_SCALE)
-        val halfWidth = viewSize.width / 2f / targetScale
-        moveTo(Offset(maxOf(area.center.x, area.right + Layout.SQ - halfWidth), area.center.y), targetScale)
+        val halfWidth = region.width / 2f / targetScale
+        moveTo(Offset(maxOf(area.center.x, area.right + Layout.SQ - halfWidth), area.center.y), targetScale, region)
     }
 
-    private suspend fun moveTo(center: Offset, targetScale: Float) {
-        val targetOffset = Offset(viewSize.width / 2f, coveredTop + usableHeight / 2f) - center * targetScale
+    /** Glides so world point [center] sits in the middle of [region], at [targetScale]. */
+    private suspend fun moveTo(center: Offset, targetScale: Float, region: Rect) {
+        val targetOffset = region.center - center * targetScale
         if (!initialized || reducedMotion) {
             initialized = true
             scale = targetScale

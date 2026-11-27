@@ -268,6 +268,19 @@ fun GameScreen(
         val docked = maxWidth >= 840.dp && maxWidth > maxHeight
         // A little room between the card and what the camera frames above it.
         val coveredGap = with(LocalDensity.current) { 16.dp.toPx() }
+        // What the card covers, for the camera: the whole bottom, or when docked only its corner
+        // (the card and the 12 dp around it), so boards can use the full height beside it.
+        val cardMargin = with(LocalDensity.current) { 24.dp.toPx() }
+        var bottomBand by remember { mutableIntStateOf(0) }
+        var cardWidth by remember { mutableIntStateOf(0) }
+        // Told as the card is measured, so the camera knows before it first frames the boards,
+        // and again when the screen turns (docking can change without the card's height changing).
+        fun reportCovered() {
+            camera.coveredBottom = if (docked) 0f else bottomBand + coveredGap
+            camera.coveredCornerHeight = if (docked) bottomBand + coveredGap else 0f
+            camera.coveredCornerWidth = if (docked) cardWidth + cardMargin + coveredGap else 0f
+        }
+        LaunchedEffect(docked) { reportCovered() }
         MultiverseView(session, camera, onTap, Modifier.fillMaxSize(), slice)
 
         // Top: back, title and tools, floating over the multiverse on a band of the background that
@@ -392,13 +405,19 @@ fun GameScreen(
             Modifier
                 .align(if (docked) Alignment.BottomEnd else Alignment.BottomCenter)
                 .fillMaxWidth()
-                .onSizeChanged { camera.coveredBottom = it.height.toFloat() + coveredGap }
+                .onSizeChanged {
+                    bottomBand = it.height
+                    reportCovered()
+                }
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .padding(12.dp),
             contentAlignment = if (docked) Alignment.BottomEnd else Alignment.BottomCenter,
         ) {
             // The news scrolls, and the turn's buttons stay in reach.
-            SlabCard(Modifier.widthIn(max = if (docked) 460.dp else 560.dp).fillMaxWidth().heightIn(max = cardMaxHeight)) {
+            SlabCard(Modifier.widthIn(max = if (docked) 460.dp else 560.dp).fillMaxWidth().onSizeChanged {
+                cardWidth = it.width
+                reportCovered()
+            }.heightIn(max = cardMaxHeight)) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Column(
                         Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),

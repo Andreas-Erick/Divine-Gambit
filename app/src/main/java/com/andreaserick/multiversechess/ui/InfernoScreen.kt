@@ -45,6 +45,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -159,6 +160,19 @@ fun InfernoScreen(
         val wide = maxWidth >= 840.dp
         // Held sideways, the trial's card sits in the bottom corner, as the board's does above.
         val docked = wide && maxWidth > maxHeight
+        // What the card covers, for the camera: the whole bottom, or when docked only its corner
+        // (the card and the 12 dp around it), so boards can use the full height beside it.
+        val cardMargin = with(LocalDensity.current) { 24.dp.toPx() }
+        var bottomBand by remember { mutableIntStateOf(0) }
+        var cardWidth by remember { mutableIntStateOf(0) }
+        // Told as the card is measured, so the camera knows before it first frames the boards,
+        // and again when the screen turns (docking can change without the card's height changing).
+        fun reportCovered() {
+            camera.coveredBottom = if (docked) 0f else bottomBand + coveredGap
+            camera.coveredCornerHeight = if (docked) bottomBand + coveredGap else 0f
+            camera.coveredCornerWidth = if (docked) cardWidth + cardMargin + coveredGap else 0f
+        }
+        LaunchedEffect(docked) { reportCovered() }
         InfernoDepths({ time.floatValue }, { camera.offset }, Modifier.fillMaxSize())
         if (trial != null) {
             // On a layer of its own, so the fire moving behind and in front doesn't redraw the boards.
@@ -239,14 +253,20 @@ fun InfernoScreen(
             Modifier
                 .align(if (docked) Alignment.BottomEnd else Alignment.BottomCenter)
                 .fillMaxWidth()
-                .onSizeChanged { camera.coveredBottom = it.height.toFloat() + coveredGap }
+                .onSizeChanged {
+                    bottomBand = it.height
+                    reportCovered()
+                }
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .padding(12.dp),
             contentAlignment = if (docked) Alignment.BottomEnd else Alignment.BottomCenter,
         ) {
             // At most a little under half the screen, so the souls and the trial stay in view; the
             // news scrolls, and the buttons stay in reach.
-            SlabCard(Modifier.widthIn(max = if (docked) 460.dp else 560.dp).fillMaxWidth().heightIn(max = cardMaxHeight)) {
+            SlabCard(Modifier.widthIn(max = if (docked) 460.dp else 560.dp).fillMaxWidth().onSizeChanged {
+                cardWidth = it.width
+                reportCovered()
+            }.heightIn(max = cardMaxHeight)) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val soul = souls.firstOrNull { it.index == chosen }
                     val passed = trial?.outcome is Outcome.Checkmate
