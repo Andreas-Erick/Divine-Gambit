@@ -29,12 +29,14 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -53,10 +55,11 @@ internal fun InfernoDepths(time: () -> Float, pan: () -> Offset, modifier: Modif
     val edgePath = remember { Path() }
     val rockPath = remember { Path() }
     val sky = remember { BrushCache() }
+    val lava = remember { BrushCache() }
     Box(modifier) {
         Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawAbyss(time(), pan(), sky) }
         Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawRidges(pan(), edgePath, rockPath) }
-        Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawSmoke(time(), pan()) }
+        Canvas(Modifier.fillMaxSize().graphicsLayer()) { drawSmoke(time(), pan(), lava) }
     }
 }
 
@@ -83,14 +86,11 @@ private fun DrawScope.drawAbyss(t: Float, pan: Offset, sky: BrushCache) {
     )
     val glow = Offset(w / 2f + pan.x * 0.02f, horizon)
     val glowRadius = w * 1.1f
-    drawCircle(
-        Brush.radialGradient(listOf(Color(0xFFC2380F).copy(alpha = 0.38f * flicker(t * 0.25f)), Color.Transparent), glow, glowRadius),
-        glowRadius,
-        glow,
-    )
+    unitDisc(ABYSS_GLOW, glow, glowRadius, glowRadius, alpha = flicker(t * 0.25f))
 
-    // Embers drifting in the distance, barely moving as the view does.
-    for (i in 0 until 36) {
+    // Embers drifting in the distance, barely moving as the view does; as many to the screen's
+    // area on a tablet as on a phone.
+    for (i in 0 until perArea(36, 108)) {
         val drift = pan.x * 0.06f + t * (4f + 6f * hash(i, 1)) * density
         val x = floorMod(hash(i, 2) * w * 1.5f + drift, w * 1.5f) - w * 0.25f
         val y = horizon + (hash(i, 3) - 0.6f) * h * 0.5f + sin(t * 0.4f + i) * 6f * density + pan.y * 0.06f
@@ -113,7 +113,8 @@ private fun DrawScope.drawRidges(pan: Offset, edge: Path, rock: Path) {
         val parallax = 0.05f + 0.4f * depth * depth
         val base = horizon + h * (0.03f + 0.13f * i) + pan.y * parallax * 0.4f
         val amplitude = h * (0.05f + 0.035f * i)
-        val wavelength = w * (0.22f + 0.14f * i)
+        // By the shorter side, so a screen held sideways keeps the crags' proportions.
+        val wavelength = minOf(w, h) * (0.22f + 0.14f * i)
         val step = 10f * density
         edge.reset()
         rock.reset()
@@ -144,7 +145,7 @@ private fun DrawScope.drawRidges(pan: Offset, edge: Path, rock: Path) {
 }
 
 /** Smoke rolling slowly in front of the rock, and the light of lava from below. */
-private fun DrawScope.drawSmoke(t: Float, pan: Offset) {
+private fun DrawScope.drawSmoke(t: Float, pan: Offset, lavaBrush: BrushCache) {
     val w = size.width
     val h = size.height
     val big = maxOf(w, h)
@@ -154,16 +155,32 @@ private fun DrawScope.drawSmoke(t: Float, pan: Offset) {
             h * (0.55f + 0.45f * cos(t * 0.035f * (i + 2) + i * 0.9f)),
         )
         val radius = big * (0.3f + 0.08f * sin(t * 0.21f + i * 2.3f))
-        val color = if (i % 2 == 0) Color(0xFF6E120B) else Color(0xFF3A0716)
-        drawCircle(Brush.radialGradient(listOf(color.copy(alpha = 0.3f), Color.Transparent), center, radius), radius, center)
+        unitDisc(if (i % 2 == 0) SMOKE_RED else SMOKE_DARK, center, radius, radius, alpha = 1f)
     }
     val lava = (0.34f * flicker(t)).coerceIn(0f, 1f)
     val lavaTop = h * 0.55f
     drawRect(
-        Brush.verticalGradient(0f to Color.Transparent, 1f to Color(0xFFB8300F).copy(alpha = lava), startY = lavaTop, endY = h),
+        lavaBrush.get(lavaTop, h) {
+            Brush.verticalGradient(0f to Color.Transparent, 1f to Color(0xFFB8300F), startY = lavaTop, endY = h)
+        },
         topLeft = Offset(0f, lavaTop),
         size = Size(w, h - lavaTop),
+        alpha = lava,
     )
+}
+
+// Gradients made once, on a disc of radius 1, and scaled where they're drawn.
+private val ABYSS_GLOW = unitGradient(0f to Color(0xFFC2380F).copy(alpha = 0.38f), 1f to Color.Transparent)
+private val SMOKE_RED = unitGradient(0f to Color(0xFF6E120B).copy(alpha = 0.3f), 1f to Color.Transparent)
+private val SMOKE_DARK = unitGradient(0f to Color(0xFF3A0716).copy(alpha = 0.3f), 1f to Color.Transparent)
+
+/**
+ * How many of something to draw for [phone] of them on a phone's screen (412 by 915 dp): more on
+ * a bigger screen, so a tablet isn't sparser, up to [most]; never fewer than on a phone.
+ */
+private fun DrawScope.perArea(phone: Int, most: Int): Int {
+    val phoneArea = 412.dp.toPx() * 915.dp.toPx()
+    return (phone * size.width * size.height / phoneArea).toInt().coerceIn(phone, most)
 }
 
 private const val RIDGES = 4
@@ -201,9 +218,10 @@ private fun floorMod(a: Float, b: Float): Float = a - b * floor(a / b)
  */
 @Composable
 internal fun InfernoAtmosphere(time: () -> Float, modifier: Modifier = Modifier) {
-    val sparks = remember { Random(7).let { r -> List(40) { Spark(r.nextFloat(), 0.25f + r.nextFloat() * 0.75f, r.nextFloat(), 1f + r.nextFloat() * 2.4f) } } }
-    val ash = remember { Random(11).let { r -> List(26) { Spark(r.nextFloat(), 0.3f + r.nextFloat() * 0.7f, r.nextFloat(), 0.8f + r.nextFloat() * 1.6f) } } }
-    val tongues = remember { Random(3).let { r -> List(9) { r.nextFloat() } } }
+    // Enough of each for a big tablet; a phone draws the first of them (see perArea).
+    val sparks = remember { Random(7).let { r -> List(120) { Spark(r.nextFloat(), 0.25f + r.nextFloat() * 0.75f, r.nextFloat(), 1f + r.nextFloat() * 2.4f) } } }
+    val ash = remember { Random(11).let { r -> List(78) { Spark(r.nextFloat(), 0.3f + r.nextFloat() * 0.7f, r.nextFloat(), 0.8f + r.nextFloat() * 1.6f) } } }
+    val tongues = remember { Random(3).let { r -> List(40) { r.nextFloat() } } }
     val tongue = remember { Path() }
     val flameBrush = remember { BrushCache() }
     Canvas(
@@ -224,13 +242,15 @@ internal fun InfernoAtmosphere(time: () -> Float, modifier: Modifier = Modifier)
     Canvas(modifier.graphicsLayer()) {
         val t = time()
         val heat = Palette.heat
-        for ((x, speed, phase, radius) in ash) {
+        for (k in 0 until perArea(26, ash.size)) {
+            val (x, speed, phase, radius) = ash[k]
             val fall = (t * speed * 0.04f + phase) % 1f
             val sway = sin(fall * 9f + phase * 20f) * 22.dp.toPx()
             val alpha = 0.4f * heat * sin(fall * PI.toFloat())
             drawCircle(Color(0xFF9A8C86).copy(alpha = alpha), radius.dp.toPx(), Offset(size.width * x + sway, size.height * fall))
         }
-        for ((x, speed, phase, radius) in sparks) {
+        for (k in 0 until perArea(40, sparks.size)) {
+            val (x, speed, phase, radius) = sparks[k]
             // Each spark rises at its own speed, wavering and glinting, and dies out near the top.
             val rise = (t * speed * 0.33f + phase) % 1f
             val at = Offset(size.width * x + sin(rise * 6f + phase * 10f) * 14.dp.toPx(), size.height * (1f - rise))
@@ -238,7 +258,9 @@ internal fun InfernoAtmosphere(time: () -> Float, modifier: Modifier = Modifier)
             drawCircle(Palette.flame.copy(alpha = alpha), radius.dp.toPx(), at)
             drawCircle(Palette.ember.copy(alpha = alpha * 0.35f), radius.dp.toPx() * 2.8f, at)
         }
-        val step = size.width / (tongues.size - 1)
+        // A tongue every 56 dp or so, at least nine: on a wide screen more of them, not wider ones.
+        val count = (size.width / 56.dp.toPx()).roundToInt().coerceIn(9, tongues.size)
+        val step = size.width / (count - 1)
         // One gradient for every tongue, from the tallest a tongue can reach down to the floor.
         val tallest = 215.dp.toPx() * 1.3f
         val fire = flameBrush.get(size.height, tallest) {
@@ -251,7 +273,7 @@ internal fun InfernoAtmosphere(time: () -> Float, modifier: Modifier = Modifier)
                 endY = size.height,
             )
         }
-        for (i in tongues.indices) {
+        for (i in 0 until count) {
             val seed = tongues[i]
             val x = i * step
             val height = 215.dp.toPx() * (0.65f + 0.35f * seed) * flicker(t, seed * 40f)
@@ -273,10 +295,12 @@ internal fun GlowingTitle(text: String, time: () -> Float) {
     // A steady glow, and a stronger one over it whose opacity flickers: read while drawing, so the
     // title isn't composed again on every frame.
     Box {
-        Text(text, style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(Palette.ember, Offset.Zero, 10f)), maxLines = 1)
+        // Blurs in dp, so the glow is the same size on every screen.
+        val (soft, strong) = with(LocalDensity.current) { 4.dp.toPx() to 8.5.dp.toPx() }
+        Text(text, style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(Palette.ember, Offset.Zero, soft)), maxLines = 1)
         Text(
             text,
-            style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(Palette.ember, Offset.Zero, 22f)),
+            style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(Palette.ember, Offset.Zero, strong)),
             maxLines = 1,
             modifier = Modifier.graphicsLayer { alpha = ((flicker(time()) - 0.75f) * 2f).coerceIn(0f, 1f) }.clearAndSetSemantics {},
         )

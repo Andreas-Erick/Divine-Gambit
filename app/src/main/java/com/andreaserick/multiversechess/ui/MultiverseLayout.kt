@@ -102,7 +102,21 @@ internal class Columns private constructor(private val parity: Int?) {
 class CameraState {
     var offset by mutableStateOf(Offset.Zero)
     var scale by mutableFloatStateOf(1f)
-    var viewSize by mutableStateOf(IntSize.Zero)
+    private var size by mutableStateOf(IntSize.Zero)
+
+    /**
+     * The view's size in pixels. When it changes once the camera is placed (a tablet turned, or the
+     * app resized beside another), whatever was in the middle of the view stays in the middle.
+     */
+    var viewSize: IntSize
+        get() = size
+        set(value) {
+            val old = size
+            if (initialized && old.width > 0 && old.height > 0 && value != old) {
+                offset += Offset((value.width - old.width) / 2f, (value.height - old.height) / 2f)
+            }
+            size = value
+        }
 
     /** Parts of the view covered by overlaid controls, in pixels; focusing centers between them. */
     var coveredTop by mutableFloatStateOf(0f)
@@ -174,16 +188,17 @@ class CameraState {
      * Glides to center [area] (in world units) in the uncovered part of the view. The first time,
      * with [resetZoom], or when the area wouldn't fit, it also zooms so the area fills the view
      * comfortably, leaving neighbouring boards and ribbons in sight. If showing all of [area] would
-     * shrink squares below [minSquare] pixels, it shows [fallback] instead.
+     * shrink squares below [minSquare] pixels, it shows [fallback] instead. Squares are never made
+     * bigger than [maxSquare] pixels, so a big tablet still shows what's around the area.
      */
-    suspend fun focus(area: Rect, resetZoom: Boolean = false, minSquare: Float = 0f, fallback: Rect = area) {
+    suspend fun focus(area: Rect, resetZoom: Boolean = false, minSquare: Float = 0f, fallback: Rect = area, maxSquare: Float = Float.POSITIVE_INFINITY) {
         if (!hasSize) return
         val shown = if (fitScale(area, 0.62f) * Layout.SQ < minSquare) fallback else area
         // A single board fills most of the width (clear of the tool buttons at the side), so its
         // squares are big enough to aim at; several
         // leave room around them, with neighbouring boards in sight.
         val single = shown.width <= Layout.BOARD + 1f
-        val fit = fitScale(shown, if (single) 0.74f else 0.62f).coerceIn(minScale, MAX_SCALE)
+        val fit = fitScale(shown, if (single) 0.74f else 0.62f).coerceAtMost(maxSquare / Layout.SQ).coerceIn(minScale, MAX_SCALE)
         moveTo(shown.center, if (resetZoom || !initialized || fit < scale) fit else scale)
     }
 

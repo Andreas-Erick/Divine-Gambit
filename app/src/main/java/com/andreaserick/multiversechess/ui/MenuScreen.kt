@@ -11,11 +11,13 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -44,6 +46,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +54,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -65,8 +70,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import com.andreaserick.multiversechess.engine.GameMode
 import com.andreaserick.multiversechess.engine.GameKind
@@ -122,45 +129,47 @@ fun MenuScreen(
 
     BackHandler(enabled = page != MenuPage.HOME) { page = MenuPage.HOME }
 
-    Box(modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        // On a tall screen (a tablet held upright) the title and card come down toward the middle,
+        // instead of leaving the lower half empty; on a phone this is the usual 48 dp. It depends
+        // only on the screen, so the title stays put as the card changes height between pages.
+        val topGap = ((maxHeight - 860.dp) / 2).coerceAtLeast(48.dp)
         // The timeline branches a little below the card, but never into the warmth at the bottom.
         val forkGap = with(LocalDensity.current) { 56.dp.toPx() }
         Heavens(light = { titleCenter }, fork = { cardBottom?.plus(forkGap) }, modifier = Modifier.fillMaxSize())
-        Column(
-            Modifier
-                .fillMaxSize()
-                .safeDrawingPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Spacer(Modifier.height(48.dp))
-            // The heavens' light shines behind the title.
-            Column(
-                Modifier.onGloballyPositioned { titleCenter = it.boundsInRoot().center },
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
+        // On a wide screen held sideways the title stands on the left and the card on the right,
+        // so every page of the card fits without scrolling; otherwise one above the other.
+        val twoPane = maxWidth >= 840.dp && maxWidth > maxHeight
+        val title: @Composable () -> Unit = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // The heavens' light shines behind the title.
+                Column(
+                    Modifier.onGloballyPositioned { titleCenter = it.boundsInRoot().center },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        "Divine",
+                        style = MaterialTheme.typography.displayMedium.copy(shadow = Shadow(Color(0x73FFE29A), blurRadius = 48f)),
+                        color = Palette.ink,
+                    )
+                    Text(
+                        "G A M B I T",
+                        style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(Color(0x59E8C77A), blurRadius = 24f)),
+                        color = Palette.accent,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
                 Text(
-                    "Divine",
-                    style = MaterialTheme.typography.displayMedium.copy(shadow = Shadow(Color(0x73FFE29A), blurRadius = 48f)),
-                    color = Palette.ink,
+                    "Chess, with time travel and parallel timelines.\nDescend, and win back the fallen.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontStyle = FontStyle.Italic,
+                    color = Palette.inkSoft,
+                    textAlign = TextAlign.Center,
                 )
-                Text(
-                    "G A M B I T",
-                    style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(Color(0x59E8C77A), blurRadius = 24f)),
-                    color = Palette.accent,
-                )
+                Ornament(Modifier.padding(top = 16.dp, bottom = if (twoPane) 0.dp else 20.dp))
             }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Chess, with time travel and parallel timelines.\nDescend, and win back the fallen.",
-                style = MaterialTheme.typography.bodyMedium,
-                fontStyle = FontStyle.Italic,
-                color = Palette.inkSoft,
-                textAlign = TextAlign.Center,
-            )
-            Ornament(Modifier.padding(top = 16.dp, bottom = 20.dp))
-
+        }
+        val card: @Composable () -> Unit = {
             SlabCard(
                 Modifier
                     .widthIn(max = 440.dp)
@@ -238,7 +247,7 @@ fun MenuScreen(
                                 MenuChoice("Singleplayer", "Against the computer or an AI.", primary = nothingToContinue && !guided) { page = MenuPage.SINGLE }
                                 MenuChoice(
                                     "Multiplayer",
-                                    if (canPlayOnline) "Pass and play on this phone, or a friend online." else "Pass and play on this phone.",
+                                    if (canPlayOnline) "Pass and play on this device, or a friend online." else "Pass and play on this device.",
                                 ) { page = MenuPage.MULTI }
                                 HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Palette.cardEdge)
                                 SecondaryPill(onClick = onPuzzles, modifier = Modifier.fillMaxWidth()) {
@@ -292,12 +301,49 @@ fun MenuScreen(
                     }
                 }
             }
+    }
+        if (twoPane) {
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .safeDrawingPadding()
+                    .padding(horizontal = 32.dp),
+                horizontalArrangement = Arrangement.spacedBy(64.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.weight(1f, fill = false)) { title() }
+                // Centred in the height, and scrolling only if a page is ever taller than the screen.
+                BoxWithConstraints(Modifier.width(440.dp).fillMaxHeight()) {
+                    val height = maxHeight
+                    Column(
+                        Modifier
+                            .verticalScroll(rememberScrollState())
+                            .heightIn(min = height)
+                            .padding(vertical = 24.dp),
+                        verticalArrangement = Arrangement.Center,
+                    ) { card() }
+                }
+            }
+        } else {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .safeDrawingPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(topGap))
+                title()
+                card()
+            }
         }
     }
 
     if (showRules) RulesDialog(onDismiss = { showRules = false })
     if (confirmDiscard) {
         AlertDialog(
+            modifier = MenuDialogWidth,
             onDismissRequest = { confirmDiscard = false },
             confirmButton = {
                 DestructiveTextButton("Discard") {
@@ -313,6 +359,7 @@ fun MenuScreen(
     if (confirmDiscardOnline && resumableOnline != null) {
         val friend = resumableOnline.opponentName
         AlertDialog(
+            modifier = MenuDialogWidth,
             onDismissRequest = { confirmDiscardOnline = false },
             confirmButton = {
                 DestructiveTextButton("Forget it") {
@@ -393,6 +440,12 @@ fun MenuScreen(
     }
 }
 
+/**
+ * The menu's dialogs are no wider than its card: on a tablet they'd otherwise stretch to 560 dp,
+ * with lines too long to read comfortably. Phones are narrower than this anyway.
+ */
+private val MenuDialogWidth = Modifier.widthIn(max = 440.dp)
+
 /** A game on offer to continue, with a button to throw it away. */
 @Composable
 private fun ResumeRow(title: String, summary: String, discardLabel: String, onContinue: () -> Unit, onDiscard: () -> Unit) {
@@ -461,8 +514,12 @@ private fun Ornament(modifier: Modifier = Modifier) {
 /** A page's title, with the way back to the menu's first page. */
 @Composable
 private fun PageHeader(title: String, onBack: () -> Unit) {
+    // With a keyboard, focus lands here when the page opens, rather than being lost with the
+    // button that opened it. On a touch screen buttons don't take focus, so nothing changes.
+    val back = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { back.requestFocus() } }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack)
+        RoundIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack, modifier = Modifier.focusRequester(back))
         Spacer(Modifier.width(12.dp))
         Text(title, style = MaterialTheme.typography.titleLarge)
     }
@@ -515,6 +572,7 @@ private fun InviteDialog(
     var name by rememberSaveable { mutableStateOf(playerName) }
     val valid = Ticket.parseName(name)
     AlertDialog(
+        modifier = MenuDialogWidth,
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         title = { Text("Invite a friend") },
@@ -522,7 +580,7 @@ private fun InviteDialog(
             // Scrolls, so the choice of side stays in reach with the keyboard up or in landscape.
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "You'll get a link to send to your friend, to play on their own phone. " +
+                    "You'll get a link to send to your friend, to play on their own phone or tablet. " +
                         "${variant.displayName}, ${limitLabel(timelineLimit).lowercase()}${if (inferno) ", with the Inferno" else ""}, as chosen under Multiplayer.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -542,7 +600,11 @@ private fun InviteDialog(
 private fun JoinDialog(onJoin: (String) -> Unit, onDismiss: () -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
     val code = Ticket.parseCode(text)
+    // Ready to type into, which matters with a keyboard; on a touch screen it brings up the keyboard.
+    val field = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
     AlertDialog(
+        modifier = MenuDialogWidth,
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = { code?.let(onJoin) }, enabled = code != null) { Text("Join") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
@@ -556,12 +618,13 @@ private fun JoinDialog(onJoin: (String) -> Unit, onDismiss: () -> Unit) {
                     singleLine = true,
                     placeholder = { Text("ABCDE-FGHJK") },
                     keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Ascii,
                         capitalization = KeyboardCapitalization.Characters,
                         autoCorrectEnabled = false,
                         imeAction = ImeAction.Done,
                     ),
                     keyboardActions = KeyboardActions(onDone = { code?.let(onJoin) }),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().focusRequester(field),
                 )
             }
         },
@@ -572,6 +635,7 @@ private fun JoinDialog(onJoin: (String) -> Unit, onDismiss: () -> Unit) {
 @Composable
 private fun OpponentDialog(aiName: String?, againstAi: Boolean, onChoose: (Boolean) -> Unit, onSetUp: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
+        modifier = MenuDialogWidth,
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         title = { Text("Opponent") },
@@ -628,6 +692,7 @@ private fun limitLabel(limit: Int?) = if (limit == null) "Unlimited" else "Up to
 @Composable
 private fun LimitDialog(selected: Int?, onSelect: (Int?) -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
+        modifier = MenuDialogWidth,
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         title = { Text("Timelines") },
@@ -674,6 +739,7 @@ private fun LimitDialog(selected: Int?, onSelect: (Int?) -> Unit, onDismiss: () 
 @Composable
 private fun VariantDialog(selected: Variant, onSelect: (Variant) -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
+        modifier = MenuDialogWidth,
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         title = { Text("Variant") },

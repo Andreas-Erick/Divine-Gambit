@@ -30,6 +30,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
@@ -69,6 +71,7 @@ import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sin
 
 /**
@@ -183,6 +186,7 @@ fun MultiverseView(
                 customActions = spoken.actions.map { (label, pos) -> CustomAccessibilityAction(label) { currentOnTap(pos); true } }
             }
             .pointerInput(camera) { detectCameraGestures(camera) }
+            .pointerInput(camera) { detectWheelZoom(camera) }
             .pointerInput(camera) {
                 detectTapGestures { tap ->
                     // Catching the view as it glides stops it; that tap isn't a move as well.
@@ -236,6 +240,9 @@ private val MIN_TAPPABLE_SQUARE = 24.dp
 /** The present is shown no smaller than this, so it can be played without zooming. */
 internal val COMFORTABLE_SQUARE = 28.dp
 
+/** Focusing on the present makes squares no bigger than this, so a big tablet keeps the boards around it in view. */
+internal val ROOMY_SQUARE = 72.dp
+
 /** What the board says to a screen reader, and the actions it offers: each a label and the square it taps. */
 private class Spoken(val description: String, val actions: List<Pair<String, Pos>>)
 
@@ -275,6 +282,12 @@ private fun describeForScreenReaders(session: GameSession): Spoken {
 
 /** Turn captions are drawn at least this tall on screen, as far as they can grow. */
 private val MIN_CAPTION = 14.dp
+
+/** ...and at most this tall, however far a big screen zooms in. */
+private val MAX_CAPTION = 24.dp
+
+/** A timeline's name beside its first board is drawn at most this tall on screen. */
+private val MAX_LABEL = 36.dp
 
 /** When framing a long timeline, boards stay at least this fraction of the view's width. */
 internal const val TIMELINE_MIN_BOARD = 0.24f
@@ -326,6 +339,39 @@ private suspend fun PointerInputScope.detectCameraGestures(camera: CameraState) 
         }
     }
 }
+
+/**
+ * With a mouse or trackpad (a tablet with a keyboard cover, say): the wheel zooms around the
+ * pointer, as two fingers would (up to zoom in, down to zoom out); scrolling sideways, as two
+ * fingers on a trackpad do, or with Shift held, pans instead.
+ */
+private suspend fun PointerInputScope.detectWheelZoom(camera: CameraState) {
+    coroutineScope {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent()
+                if (event.type != PointerEventType.Scroll) continue
+                val change = event.changes.firstOrNull() ?: continue
+                val delta = change.scrollDelta
+                if (delta == Offset.Zero) continue
+                launch { camera.stop() }
+                val step = WHEEL_PAN_STEP.toPx()
+                when {
+                    delta.x != 0f -> camera.transform(change.position, -delta * step, 1f)
+                    event.keyboardModifiers.isShiftPressed -> camera.transform(change.position, Offset(-delta.y * step, 0f), 1f)
+                    else -> camera.transform(change.position, Offset.Zero, WHEEL_ZOOM_STEP.pow(-delta.y))
+                }
+                event.changes.forEach { it.consume() }
+            }
+        }
+    }
+}
+
+/** How much one notch of a mouse wheel zooms. */
+internal const val WHEEL_ZOOM_STEP = 1.15f
+
+/** How far one notch of sideways scrolling pans. */
+private val WHEEL_PAN_STEP = 48.dp
 
 /** Where the timeline chips along the left edge were last drawn, for tapping. */
 private class TimelineRail {
@@ -622,7 +668,9 @@ private fun DrawScope.drawMultiverse(
                     drawText(label, topLeft = Offset(rect.left, captionBottom - label.size.height))
                     captionLeft += label.size.width + Layout.SQ * 0.35f
                 }
-                val grow = (MIN_CAPTION.toPx() / (caption.size.height * scale)).coerceIn(1f, 2.2f)
+                // ...and zoomed far in on a big screen they stop growing, rather than towering over the board.
+                val onScreen = caption.size.height * scale
+                val grow = (MIN_CAPTION.toPx() / onScreen).coerceIn(minOf(1f, MAX_CAPTION.toPx() / onScreen), 2.2f)
                 withTransform({ scale(grow, grow, pivot = Offset(captionLeft, captionBottom)) }) {
                     drawText(caption, topLeft = Offset(captionLeft, captionBottom - caption.size.height))
                 }
@@ -637,7 +685,11 @@ private fun DrawScope.drawMultiverse(
         if (timeline.parent == null && (!history || timeline.index == anchor.l)) {
             val labelX = columns.x(timeline.start) - label.size.width - Layout.SQ * 0.9f
             val midY = timeline.index * Layout.ROW + Layout.BOARD / 2
-            drawText(label, topLeft = Offset(labelX, midY - label.size.height / 2f))
+            // No taller than MAX_LABEL on screen, shrinking toward its end beside the board.
+            val shrink = minOf(1f, MAX_LABEL.toPx() / (label.size.height * scale))
+            withTransform({ scale(shrink, shrink, pivot = Offset(labelX + label.size.width, midY)) }) {
+                drawText(label, topLeft = Offset(labelX, midY - label.size.height / 2f))
+            }
         }
     }
 

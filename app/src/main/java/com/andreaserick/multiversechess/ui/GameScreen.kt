@@ -2,6 +2,7 @@ package com.andreaserick.multiversechess.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,9 +57,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.boundsInRoot
@@ -161,9 +167,10 @@ fun GameScreen(
     // every move, so the player keeps sight of what they just did.
     val turnStart = state.takeIf { it.turnMoves.isEmpty() }?.timelines
     val comfortableSquare = with(LocalDensity.current) { COMFORTABLE_SQUARE.toPx() }
+    val roomySquare = with(LocalDensity.current) { ROOMY_SQUARE.toPx() }
     suspend fun focusPresent(resetZoom: Boolean = false) {
         val (l, t) = state.focusBoard()
-        camera.focus(state.focusArea(), resetZoom, comfortableSquare, fallback = Layout.boardRect(l, t))
+        camera.focus(state.focusArea(), resetZoom, comfortableSquare, fallback = Layout.boardRect(l, t), maxSquare = roomySquare)
     }
     LaunchedEffect(state.sideToMove, turnStart, camera.viewSize) {
         // A game continued in the middle of a turn still needs placing once.
@@ -179,6 +186,22 @@ fun GameScreen(
     }
 
     BackHandler(enabled = slice != null && !covered) { slice = null }
+
+    val canEndTurn = !thinking && !sending && !session.isOpponentsTurn &&
+        ((ongoing && state.canSubmit) || (session.isExploring && state.turnMoves.isNotEmpty()))
+    fun showPresent() {
+        slice = null
+        scope.launch { focusPresent(resetZoom = true) }
+    }
+
+    // With a keyboard (a tablet in its keyboard cover, say), the screen takes the keys: it holds
+    // focus whenever it's in front, so Escape and the shortcuts work without tabbing to a button.
+    val keys = remember { FocusRequester() }
+    val keyPan = with(LocalDensity.current) { 64.dp.toPx() }
+    val dialogOpen = showLog || showRules || showMenu || confirmResign || showHint || confirmSolution || choosingSoul
+    LaunchedEffect(covered, dialogOpen) {
+        if (!covered && !dialogOpen) runCatching { keys.requestFocus() }
+    }
 
     var topBarHeight by remember { mutableIntStateOf(0) }
     BoxWithConstraints(
@@ -200,9 +223,51 @@ fun GameScreen(
                 } else {
                     false
                 }
-            },
+            }
+            // After a focused button has had its turn: Enter ends the turn, Ctrl+Z takes back a
+            // move, P returns to the present.
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown || covered) return@onKeyEvent false
+                when {
+                    (event.key == Key.Enter || event.key == Key.NumPadEnter) && canEndTurn -> {
+                        onSubmit()
+                        true
+                    }
+                    event.isCtrlPressed && event.key == Key.Z && session.previous != null && !sending -> {
+                        onUndo()
+                        true
+                    }
+                    event.key == Key.P && !event.isCtrlPressed -> {
+                        showPresent()
+                        true
+                    }
+                    // Arrows pan the multiverse, and + and - zoom it about the middle of the view.
+                    event.key in KEY_PANS -> {
+                        val (dx, dy) = KEY_PANS.getValue(event.key)
+                        camera.transform(Offset.Zero, Offset(dx, dy) * keyPan, 1f)
+                        true
+                    }
+                    event.key == Key.Equals || event.key == Key.Plus || event.key == Key.NumPadAdd ||
+                        event.key == Key.Minus || event.key == Key.NumPadSubtract -> {
+                        val zoomIn = event.key == Key.Equals || event.key == Key.Plus || event.key == Key.NumPadAdd
+                        val middle = Offset(camera.viewSize.width / 2f, camera.viewSize.height / 2f)
+                        camera.transform(middle, Offset.Zero, if (zoomIn) WHEEL_ZOOM_STEP else 1f / WHEEL_ZOOM_STEP)
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusRequester(keys)
+            .focusable(),
     ) {
-        val cardMaxHeight = maxHeight * 0.55f
+        // At most a little over half the screen, and on a big tablet no taller than it needs to be
+        // to keep the multiverse in view (the news scrolls).
+        val cardMaxHeight = if (maxWidth >= 600.dp) minOf(maxHeight * 0.55f, 400.dp) else maxHeight * 0.55f
+        // On a wide screen held sideways, the card sits in the bottom corner, under the right
+        // thumb, instead of over the middle of the board.
+        val docked = maxWidth >= 840.dp && maxWidth > maxHeight
+        // A little room between the card and what the camera frames above it.
+        val coveredGap = with(LocalDensity.current) { 16.dp.toPx() }
         MultiverseView(session, camera, onTap, Modifier.fillMaxSize(), slice)
 
         // Top: back, title and tools, floating over the multiverse on a band of the background that
@@ -325,15 +390,15 @@ fun GameScreen(
         // Bottom: status and turn controls.
         Box(
             Modifier
-                .align(Alignment.BottomCenter)
+                .align(if (docked) Alignment.BottomEnd else Alignment.BottomCenter)
                 .fillMaxWidth()
-                .onSizeChanged { camera.coveredBottom = it.height.toFloat() + 40f }
+                .onSizeChanged { camera.coveredBottom = it.height.toFloat() + coveredGap }
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .padding(12.dp),
-            contentAlignment = Alignment.BottomCenter,
+            contentAlignment = if (docked) Alignment.BottomEnd else Alignment.BottomCenter,
         ) {
-            // At most a little over half the screen: the news scrolls, and the turn's buttons stay in reach.
-            SlabCard(Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = cardMaxHeight)) {
+            // The news scrolls, and the turn's buttons stay in reach.
+            SlabCard(Modifier.widthIn(max = if (docked) 460.dp else 560.dp).fillMaxWidth().heightIn(max = cardMaxHeight)) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Column(
                         Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
@@ -360,15 +425,11 @@ fun GameScreen(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         SecondaryPill(onClick = onUndo, enabled = session.previous != null && !sending) { Text("Undo") }
-                        SecondaryPill(onClick = {
-                            slice = null
-                            scope.launch { focusPresent(resetZoom = true) }
-                        }) { Text("Present") }
+                        SecondaryPill(onClick = ::showPresent) { Text("Present") }
                         PrimaryPill(
                             onClick = onSubmit,
                             // After the game, End turn explains why the moves tried can't be played.
-                            enabled = !thinking && !sending && !session.isOpponentsTurn &&
-                                ((ongoing && state.canSubmit) || (session.isExploring && state.turnMoves.isNotEmpty())),
+                            enabled = canEndTurn,
                             modifier = Modifier.weight(1f),
                         ) { Text("End turn", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
@@ -431,7 +492,11 @@ fun GameScreen(
                 if (session.log.isEmpty()) {
                     Text("No moves yet.")
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Opens on the latest moves, which are the ones wanted in a long game.
+                    LazyColumn(
+                        state = rememberLazyListState(initialFirstVisibleItemIndex = session.log.lastIndex.coerceAtLeast(0)),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         itemsIndexed(session.log) { i, line ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
@@ -571,6 +636,14 @@ private fun TipLine(text: String, onHide: () -> Unit) {
         TextButton(onClick = onHide) { Text("Hide tips") }
     }
 }
+
+/** Which way each arrow key moves the view's contents: the multiverse slides opposite the arrow. */
+private val KEY_PANS = mapOf(
+    Key.DirectionLeft to (1f to 0f),
+    Key.DirectionRight to (-1f to 0f),
+    Key.DirectionUp to (0f to 1f),
+    Key.DirectionDown to (0f to -1f),
+)
 
 /** How long the scroll stays after a choice: as long as the descent through it takes. */
 private const val SCROLL_BURNS_MILLIS = 1_600L
